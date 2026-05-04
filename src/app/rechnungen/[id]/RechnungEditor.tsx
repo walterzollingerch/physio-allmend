@@ -102,7 +102,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
     setError(null)
     start(async () => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { id: _id, created_at: _ca, ...invData } = inv
+      const { id: _id, ...invData } = inv
       if (statusOverride) invData.status = statusOverride
 
       const { error: invErr } = await supabase
