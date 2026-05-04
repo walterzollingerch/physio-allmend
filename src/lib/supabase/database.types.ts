@@ -62,6 +62,227 @@ export interface Database {
         }
         Relationships: []
       }
+      customers: {
+        Row: {
+          id: string
+          customer_number: string
+          name: string
+          street: string | null
+          street_number: string | null
+          postal_code: string | null
+          city: string | null
+          country: string | null
+          phone: string | null
+          website: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          customer_number: string
+          name: string
+          street?: string | null
+          street_number?: string | null
+          postal_code?: string | null
+          city?: string | null
+          country?: string | null
+          phone?: string | null
+          website?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          customer_number?: string
+          name?: string
+          street?: string | null
+          street_number?: string | null
+          postal_code?: string | null
+          city?: string | null
+          country?: string | null
+          phone?: string | null
+          website?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      accounts: {
+        Row: {
+          id: string
+          number: string
+          name: string
+          type: 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
+          group_id: string | null
+          balance: number
+          description: string | null
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          number: string
+          name: string
+          type: 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
+          group_id?: string | null
+          balance?: number
+          description?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          number?: string
+          name?: string
+          type?: 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
+          group_id?: string | null
+          balance?: number
+          description?: string | null
+          is_active?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      account_groups: {
+        Row: {
+          id: string
+          name: string
+          type: 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
+          description: string | null
+          sort_order: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          type: 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
+          description?: string | null
+          sort_order?: number
+          created_at?: string
+        }
+        Update: {
+          name?: string
+          type?: 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
+          description?: string | null
+          sort_order?: number
+        }
+        Relationships: []
+      }
+      fiscal_years: {
+        Row: {
+          id: string
+          name: string
+          start_date: string
+          end_date: string
+          is_closed: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          start_date: string
+          end_date: string
+          is_closed?: boolean
+          created_at?: string
+        }
+        Update: {
+          name?: string
+          start_date?: string
+          end_date?: string
+          is_closed?: boolean
+        }
+        Relationships: []
+      }
+      invoices: {
+        Row: {
+          id: string
+          number: string
+          customer_name: string
+          customer_address: string
+          invoice_date: string
+          due_date: string | null
+          delivery_date: string | null
+          reference: string | null
+          bank_info: string | null
+          conditions: string | null
+          notes: string | null
+          footer: string | null
+          discount_type: 'percent' | 'amount'
+          discount_value: number
+          status: 'entwurf' | 'gesendet' | 'bezahlt' | 'storniert'
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          number?: string
+          customer_name?: string
+          customer_address?: string
+          invoice_date?: string
+          due_date?: string | null
+          delivery_date?: string | null
+          reference?: string | null
+          bank_info?: string | null
+          conditions?: string | null
+          notes?: string | null
+          footer?: string | null
+          discount_type?: 'percent' | 'amount'
+          discount_value?: number
+          status?: 'entwurf' | 'gesendet' | 'bezahlt' | 'storniert'
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          number?: string
+          customer_name?: string
+          customer_address?: string
+          invoice_date?: string
+          due_date?: string | null
+          delivery_date?: string | null
+          reference?: string | null
+          bank_info?: string | null
+          conditions?: string | null
+          notes?: string | null
+          footer?: string | null
+          discount_type?: 'percent' | 'amount'
+          discount_value?: number
+          status?: 'entwurf' | 'gesendet' | 'bezahlt' | 'storniert'
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      invoice_items: {
+        Row: {
+          id: string
+          invoice_id: string
+          position: number
+          service_name: string
+          description: string | null
+          unit_price: number
+          quantity: number
+          unit: string
+        }
+        Insert: {
+          id?: string
+          invoice_id: string
+          position?: number
+          service_name?: string
+          description?: string | null
+          unit_price?: number
+          quantity?: number
+          unit?: string
+        }
+        Update: {
+          position?: number
+          service_name?: string
+          description?: string | null
+          unit_price?: number
+          quantity?: number
+          unit?: string
+        }
+        Relationships: []
+      }
       bookings: {
         Row: {
           id: string
