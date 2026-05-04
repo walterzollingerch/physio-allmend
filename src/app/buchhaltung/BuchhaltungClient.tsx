@@ -462,9 +462,11 @@ function BuchungenTab({ accounts, journalEntries, onJournalEntriesChange, onAcco
   onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
   supabase: ReturnType<typeof createClient>
 }) {
-  const [showForm, setShowForm] = useState(false)
-  const [error, setError]       = useState<string | null>(null)
-  const [isPending, start]      = useTransition()
+  const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null)
+  const [showForm, setShowForm]         = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [error, setError]               = useState<string | null>(null)
+  const [isPending, start]              = useTransition()
 
   const today = new Date().toISOString().slice(0, 10)
   const [date, setDate]         = useState(today)
@@ -473,8 +475,39 @@ function BuchungenTab({ accounts, journalEntries, onJournalEntriesChange, onAcco
   const [creditId, setCreditId] = useState('')
   const [amount, setAmount]     = useState('')
 
-  function resetForm() {
-    setDate(today); setDesc(''); setDebitId(''); setCreditId(''); setAmount(''); setError(null)
+  const isEditMode = editingEntry !== null
+
+  function openNew() {
+    setEditingEntry(null)
+    setDate(today); setDesc(''); setDebitId(''); setCreditId(''); setAmount('')
+    setError(null); setShowForm(true)
+  }
+
+  function openEdit(entry: JournalEntry) {
+    setEditingEntry(entry)
+    setDate(entry.date)
+    setDesc(entry.description)
+    setDebitId(entry.debit_account_id)
+    setCreditId(entry.credit_account_id)
+    setAmount(String(entry.amount))
+    setError(null); setShowForm(true)
+  }
+
+  function closeForm() {
+    setShowForm(false); setEditingEntry(null); setError(null)
+  }
+
+  // Helper: apply balance delta to an account in DB and local state
+  async function applyDelta(accountId: string, delta: number, accList: Account[]) {
+    const { data: fresh } = await supabase.from('accounts').select('balance').eq('id', accountId).single()
+    const base = fresh ? Number(fresh.balance) : (accList.find(a => a.id === accountId)?.balance ?? 0)
+    await supabase.from('accounts').update({ balance: base + delta }).eq('id', accountId)
+    return { id: accountId, newBalance: base + delta }
+  }
+
+  function balanceDelta(type: string, isSoll: boolean, amount: number): number {
+    if (isSoll) return (type === 'aktiv' || type === 'aufwand') ? amount : -amount
+    return (type === 'passiv' || type === 'ertrag') ? amount : -amount
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -489,30 +522,93 @@ function BuchungenTab({ accounts, journalEntries, onJournalEntriesChange, onAcco
 
     setError(null)
     start(async () => {
-      const { data: entry, error: err } = await supabase
-        .from('journal_entries')
-        .insert({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt })
-        .select('*, debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
-        .single()
-      if (err) { setError(err.message); return }
+      if (isEditMode && editingEntry) {
+        // ── Edit: reverse old entry, apply new ──────────────────
+        const oldDebitAcc  = accounts.find(a => a.id === editingEntry.debit_account_id)
+        const oldCreditAcc = accounts.find(a => a.id === editingEntry.credit_account_id)
+        const oldAmt = Number(editingEntry.amount)
 
-      // Update account balances (double-entry)
-      const debitDelta  = (debitAcc.type === 'aktiv'  || debitAcc.type === 'aufwand')  ?  amt : -amt
-      const creditDelta = (creditAcc.type === 'passiv' || creditAcc.type === 'ertrag') ?  amt : -amt
+        // Accumulate net deltas per account (handle same account appearing in old & new)
+        const deltas = new Map<string, number>()
+        const add = (id: string, d: number) => deltas.set(id, (deltas.get(id) ?? 0) + d)
 
-      await Promise.all([
-        supabase.from('accounts').update({ balance: Number(debitAcc.balance)  + debitDelta  }).eq('id', debitId),
-        supabase.from('accounts').update({ balance: Number(creditAcc.balance) + creditDelta }).eq('id', creditId),
-      ])
+        // Reverse old
+        if (oldDebitAcc)  add(editingEntry.debit_account_id,  -balanceDelta(oldDebitAcc.type,  true,  oldAmt))
+        if (oldCreditAcc) add(editingEntry.credit_account_id, -balanceDelta(oldCreditAcc.type, false, oldAmt))
+        // Apply new
+        add(debitId,  balanceDelta(debitAcc.type,  true,  amt))
+        add(creditId, balanceDelta(creditAcc.type, false, amt))
 
-      onJournalEntriesChange(prev => [entry as JournalEntry, ...prev])
-      onAccountsChange(prev => prev.map(a => {
-        if (a.id === debitId)  return { ...a, balance: Number(a.balance) + debitDelta }
-        if (a.id === creditId) return { ...a, balance: Number(a.balance) + creditDelta }
-        return a
-      }))
-      resetForm()
-      setShowForm(false)
+        // Update DB balances and collect new values
+        const newBalances: Record<string, number> = {}
+        for (const [accountId, delta] of deltas.entries()) {
+          if (delta === 0) continue
+          const r = await applyDelta(accountId, delta, accounts)
+          newBalances[r.id] = r.newBalance
+        }
+
+        // Update journal entry
+        const { data: updated, error: err } = await supabase
+          .from('journal_entries')
+          .update({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt })
+          .eq('id', editingEntry.id)
+          .select('*, debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
+          .single()
+        if (err) { setError(err.message); return }
+
+        onJournalEntriesChange(prev => prev.map(e => e.id === editingEntry.id ? updated as JournalEntry : e))
+        onAccountsChange(prev => prev.map(a => a.id in newBalances ? { ...a, balance: newBalances[a.id] } : a))
+      } else {
+        // ── New entry ────────────────────────────────────────────
+        const { data: entry, error: err } = await supabase
+          .from('journal_entries')
+          .insert({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt })
+          .select('*, debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
+          .single()
+        if (err) { setError(err.message); return }
+
+        const debitDelta  = balanceDelta(debitAcc.type,  true,  amt)
+        const creditDelta = balanceDelta(creditAcc.type, false, amt)
+
+        await Promise.all([
+          supabase.from('accounts').update({ balance: Number(debitAcc.balance)  + debitDelta  }).eq('id', debitId),
+          supabase.from('accounts').update({ balance: Number(creditAcc.balance) + creditDelta }).eq('id', creditId),
+        ])
+
+        onJournalEntriesChange(prev => [entry as JournalEntry, ...prev])
+        onAccountsChange(prev => prev.map(a => {
+          if (a.id === debitId)  return { ...a, balance: Number(a.balance) + debitDelta }
+          if (a.id === creditId) return { ...a, balance: Number(a.balance) + creditDelta }
+          return a
+        }))
+      }
+
+      closeForm()
+    })
+  }
+
+  async function handleDelete(entry: JournalEntry) {
+    setError(null)
+    start(async () => {
+      const amt         = Number(entry.amount)
+      const oldDebitAcc  = accounts.find(a => a.id === entry.debit_account_id)
+      const oldCreditAcc = accounts.find(a => a.id === entry.credit_account_id)
+
+      const newBalances: Record<string, number> = {}
+      if (oldDebitAcc) {
+        const r = await applyDelta(entry.debit_account_id,  -balanceDelta(oldDebitAcc.type,  true,  amt), accounts)
+        newBalances[r.id] = r.newBalance
+      }
+      if (oldCreditAcc) {
+        const r = await applyDelta(entry.credit_account_id, -balanceDelta(oldCreditAcc.type, false, amt), accounts)
+        newBalances[r.id] = r.newBalance
+      }
+
+      await supabase.from('journal_entries').delete().eq('id', entry.id)
+
+      onJournalEntriesChange(prev => prev.filter(e => e.id !== entry.id))
+      onAccountsChange(prev => prev.map(a => a.id in newBalances ? { ...a, balance: newBalances[a.id] } : a))
+      setDeleteConfirm(null)
     })
   }
 
@@ -522,7 +618,7 @@ function BuchungenTab({ accounts, journalEntries, onJournalEntriesChange, onAcco
     <div>
       <div className="flex justify-end mb-5">
         <button
-          onClick={() => { setShowForm(!showForm); resetForm() }}
+          onClick={openNew}
           className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         >
           <Plus size={16} /> Buchung erfassen
@@ -532,7 +628,7 @@ function BuchungenTab({ accounts, journalEntries, onJournalEntriesChange, onAcco
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-[#E1D6C2] p-5 mb-6">
           <h3 className="text-base font-semibold text-[#2A2622] mb-4" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
-            Neue Buchung
+            {isEditMode ? 'Buchung bearbeiten' : 'Neue Buchung'}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Datum *">
@@ -572,19 +668,11 @@ function BuchungenTab({ accounts, journalEntries, onJournalEntriesChange, onAcco
           )}
           {error && <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
           <div className="flex gap-3 mt-4">
-            <button
-              type="button"
-              onClick={() => { setShowForm(false); resetForm() }}
-              className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors"
-            >
+            <button type="button" onClick={closeForm} className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors">
               Abbrechen
             </button>
-            <button
-              type="submit"
-              disabled={isPending}
-              className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50"
-            >
-              {isPending ? 'Buchen…' : 'Buchen'}
+            <button type="submit" disabled={isPending} className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50">
+              {isPending ? 'Speichern…' : isEditMode ? 'Speichern' : 'Buchen'}
             </button>
           </div>
         </form>
@@ -604,27 +692,37 @@ function BuchungenTab({ accounts, journalEntries, onJournalEntriesChange, onAcco
                 <th className="text-left py-3">Beschreibung</th>
                 <th className="text-left py-3 hidden sm:table-cell">Soll</th>
                 <th className="text-left py-3 hidden sm:table-cell">Haben</th>
-                <th className="text-right py-3 pr-5">Betrag (CHF)</th>
+                <th className="text-right py-3">Betrag (CHF)</th>
+                <th className="w-16 pr-3"></th>
               </tr>
             </thead>
             <tbody>
               {journalEntries.map(entry => (
-                <tr key={entry.id} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6]">
+                <tr key={entry.id} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] group">
                   <td className="px-5 py-3 text-[#4A4138] whitespace-nowrap">{fmtDate(entry.date)}</td>
                   <td className="py-3 pr-4 text-[#2A2622] font-medium">{entry.description}</td>
                   <td className="py-3 pr-4 hidden sm:table-cell">
-                    <span className="font-mono text-xs text-[#7A6E60]">
-                      {entry.debit_account?.number}
-                    </span>
+                    <span className="font-mono text-xs text-[#7A6E60]">{entry.debit_account?.number}</span>
                     <span className="text-xs text-[#4A4138] ml-1">{entry.debit_account?.name}</span>
                   </td>
                   <td className="py-3 pr-4 hidden sm:table-cell">
-                    <span className="font-mono text-xs text-[#7A6E60]">
-                      {entry.credit_account?.number}
-                    </span>
+                    <span className="font-mono text-xs text-[#7A6E60]">{entry.credit_account?.number}</span>
                     <span className="text-xs text-[#4A4138] ml-1">{entry.credit_account?.name}</span>
                   </td>
-                  <td className="py-3 pr-5 text-right font-semibold text-[#2A2622]">{fmt(Number(entry.amount))}</td>
+                  <td className="py-3 text-right font-semibold text-[#2A2622]">{fmt(Number(entry.amount))}</td>
+                  <td className="py-3 pr-3">
+                    {deleteConfirm === entry.id ? (
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => handleDelete(entry)} disabled={isPending} className="text-red-600 hover:text-red-700 p-1"><Check size={13} /></button>
+                        <button onClick={() => setDeleteConfirm(null)} className="text-[#7A6E60] p-1"><X size={13} /></button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => openEdit(entry)} className="text-[#7A6E60] hover:text-[#6B8E7F] p-1"><Pencil size={13} /></button>
+                        <button onClick={() => setDeleteConfirm(entry.id)} className="text-[#7A6E60] hover:text-red-600 p-1"><Trash2 size={13} /></button>
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
