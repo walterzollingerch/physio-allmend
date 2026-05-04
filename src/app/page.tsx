@@ -28,12 +28,11 @@ const PRICING = [
 ]
 
 const REVIEWS = [
-  { name: 'Marianne K.', when: 'vor 2 Wochen', stars: 5, text: 'Nach Jahren mit Schulterschmerzen war ich kurz davor, mich mit ihnen abzufinden. Anna hat sich Zeit genommen, wirklich zugehört und einen Plan gemacht, der funktioniert hat. Heute trainiere ich wieder ohne Angst.' },
-  { name: 'Thomas R.', when: 'vor 1 Monat', stars: 5, text: 'Sehr kompetent und angenehm ruhig. Keine Wundermittel, keine grossen Worte — einfach gute, ehrliche Arbeit. Genau das, was ich gesucht habe.' },
-  { name: 'Sandra L.', when: 'vor 1 Monat', stars: 5, text: 'Pilates am Reformer ist eine Offenbarung. Nach drei Monaten merke ich Unterschiede in der Haltung, im Schlaf, beim Wandern. Die Stunden sind das Highlight meiner Woche.' },
-  { name: 'Jürg B.', when: 'vor 2 Monaten', stars: 5, text: 'Nach der Knie-OP wieder fit geworden. Klare Ansagen, gute Übungen, und Anna merkt sofort, wenn man schummelt. Würde ich jederzeit wieder kommen.' },
-  { name: 'Daniela M.', when: 'vor 3 Monaten', stars: 4, text: 'Sehr angenehme Atmosphäre, viel Zeit pro Termin. Einziger Wermutstropfen: die Wartezeit auf einen ersten Termin war etwas lang — aber dafür weiss man dann auch, warum.' },
-  { name: 'Peter A.', when: 'vor 4 Monaten', stars: 5, text: 'Ich komme seit zwei Jahren regelmässig zu Pilates. Anna passt jede Stunde an, nichts ist Routine. Mein Rücken dankt es.' },
+  { name: 'Wolfgang Hoffelner', when: 'vor 8 Monaten', stars: 5, text: 'Ich bin 78 Jahre alt und hatte bei sportlichen Bewegungen wie Walken, Velofahren, Fitness und Golf immer wieder starke Schmerzen in meinem Bewegungsapparat (Piriformis, Rücken und Knie). Meine Hausärztin hat mir deshalb eine Physiotherapie empfohlen.' },
+  { name: 'Myrtha Weber', when: 'vor 5 Jahren', stars: 5, text: 'Super Physiotherapie und Pilates. Karin erklärt immer alles sehr genau. Ich weiss nun über meinen Körper und wie unser System funktioniert. Seid ich Karin\'s Pilates besuche geht es meinem Rücken viel besser.' },
+  { name: 'Daniela Bronner', when: 'vor 5 Jahren', stars: 5, text: 'Super zufrieden. Jahrelange, hartnäckige Schulterschmerzen sind bereits nach wenigen Sitzungen massiv zurückgegangen. Sehr freundliche und kompetente Therapeutin.' },
+  { name: 'Martin Müller', when: 'vor 5 Jahren', stars: 5, text: 'Hier fühlt man sich ernst genommen! Sehr empfehlenswert...' },
+  { name: 'Reto Bronner', when: 'vor 5 Jahren', stars: 5, text: 'Hart aber herzlich, Profi durch und durch!' },
 ]
 
 const MAPS_URL = 'https://www.google.com/maps/place/Physio+Allmend+%2FPilates/@47.4738674,8.2950277,627m/data=!3m2!1e3!4b1!4m6!3m5!1s0x47906d5649bd7e93:0x144d3715b94d6c5b!8m2!3d47.4738674!4d8.2976026!16s%2Fg%2F11px8x9dwz?entry=ttu&g_ep=EgoyMDI2MDQyOS4wIKXMDSoASAFQAw%3D%3D'
@@ -308,8 +307,8 @@ function Reviews() {
           </div>
           <div className="text-right shrink-0">
             <div className="text-2xl mb-0.5"><Stars n={5} /></div>
-            <div className="font-semibold text-[#2A2622]">4,9 von 5</div>
-            <div className="text-xs text-[#7A6E60]">basierend auf 47 Google-Rezensionen</div>
+            <div className="font-semibold text-[#2A2622]">5,0 von 5</div>
+            <div className="text-xs text-[#7A6E60]">basierend auf 5 Google-Rezensionen</div>
           </div>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
