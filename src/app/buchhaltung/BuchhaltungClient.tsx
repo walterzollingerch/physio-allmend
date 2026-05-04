@@ -2,7 +2,11 @@
 
 import { useState, useTransition } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Pencil, Trash2, X, Check, TrendingUp, TrendingDown, Scale, BookOpen, Layers, CalendarRange, Lock, Unlock } from 'lucide-react'
+import {
+  Plus, Pencil, Trash2, X, Check,
+  TrendingUp, TrendingDown, Scale, BookOpen,
+  Layers, CalendarRange, Lock, Unlock, ReceiptText,
+} from 'lucide-react'
 
 type AccountType = 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
 
@@ -12,6 +16,9 @@ interface AccountGroup {
   type: AccountType
   description: string | null
   sort_order: number
+  account_number: string | null
+  level: 'klasse' | 'gruppe' | null
+  parent_id: string | null
 }
 
 interface Account {
@@ -33,6 +40,24 @@ interface FiscalYear {
   is_closed: boolean
 }
 
+interface JournalEntry {
+  id: string
+  date: string
+  description: string
+  debit_account_id: string
+  credit_account_id: string
+  amount: number
+  created_at: string
+  debit_account?: { number: string; name: string; type: AccountType }
+  credit_account?: { number: string; name: string; type: AccountType }
+}
+
+interface GroupNode extends AccountGroup {
+  children: GroupNode[]
+  nodeAccounts: Account[]
+}
+
+// ── Helpers ──────────────────────────────────────────────────
 const TYPE_LABELS: Record<AccountType, string> = {
   aktiv: 'Aktiv', passiv: 'Passiv', ertrag: 'Ertrag', aufwand: 'Aufwand',
 }
@@ -45,22 +70,49 @@ function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('de-CH')
 }
 
+function buildGroupTree(allGroups: AccountGroup[], accounts: Account[], type: AccountType): GroupNode[] {
+  const typeGroups = allGroups.filter(g => g.type === type)
+  const roots = typeGroups.filter(g => !g.parent_id)
+
+  function buildNode(g: AccountGroup): GroupNode {
+    return {
+      ...g,
+      children: typeGroups
+        .filter(c => c.parent_id === g.id)
+        .sort((a, b) => a.sort_order - b.sort_order || (a.account_number ?? '').localeCompare(b.account_number ?? ''))
+        .map(buildNode),
+      nodeAccounts: accounts.filter(a => a.group_id === g.id && a.is_active),
+    }
+  }
+
+  return roots
+    .sort((a, b) => a.sort_order - b.sort_order || (a.account_number ?? '').localeCompare(b.account_number ?? ''))
+    .map(buildNode)
+}
+
+function subtreeTotal(node: GroupNode): number {
+  const own = node.nodeAccounts.reduce((s, a) => s + Number(a.balance), 0)
+  return own + node.children.reduce((s, c) => s + subtreeTotal(c), 0)
+}
+
+// ── Main Component ───────────────────────────────────────────
 export default function BuchhaltungClient({
-  initialAccounts, initialGroups, initialFiscalYears, isAdmin,
+  initialAccounts, initialGroups, initialFiscalYears, initialJournalEntries, isAdmin,
 }: {
   initialAccounts: Account[]
   initialGroups: AccountGroup[]
   initialFiscalYears: FiscalYear[]
+  initialJournalEntries: JournalEntry[]
   isAdmin: boolean
 }) {
-  const [accounts, setAccounts]       = useState<Account[]>(initialAccounts)
-  const [groups, setGroups]           = useState<AccountGroup[]>(initialGroups)
-  const [fiscalYears, setFiscalYears] = useState<FiscalYear[]>(initialFiscalYears)
-  const [tab, setTab] = useState<'bilanz' | 'erfolg' | 'gruppen' | 'jahre'>('bilanz')
+  const [accounts, setAccounts]             = useState<Account[]>(initialAccounts)
+  const [groups]                            = useState<AccountGroup[]>(initialGroups)
+  const [fiscalYears, setFiscalYears]       = useState<FiscalYear[]>(initialFiscalYears)
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(initialJournalEntries)
+  const [tab, setTab] = useState<'bilanz' | 'erfolg' | 'buchungen' | 'gruppen' | 'jahre'>('bilanz')
 
   const supabase = createClient()
 
-  // ── Derived data ──────────────────────────────────────────
   const aktiv   = accounts.filter(a => a.type === 'aktiv'   && a.is_active)
   const passiv  = accounts.filter(a => a.type === 'passiv'  && a.is_active)
   const ertrag  = accounts.filter(a => a.type === 'ertrag'  && a.is_active)
@@ -74,51 +126,53 @@ export default function BuchhaltungClient({
 
   return (
     <div>
-      {/* Tabs */}
       <div className="flex flex-wrap gap-1 mb-6 bg-white rounded-xl border border-[#E1D6C2] p-1 w-fit">
-        <TabBtn active={tab === 'bilanz'}  onClick={() => setTab('bilanz')}  icon={<Scale size={15} />}        label="Bilanz" />
-        <TabBtn active={tab === 'erfolg'}  onClick={() => setTab('erfolg')}  icon={<BookOpen size={15} />}     label="Erfolgsrechnung" />
-        <TabBtn active={tab === 'gruppen'} onClick={() => setTab('gruppen')} icon={<Layers size={15} />}       label="Kontengruppen" />
-        <TabBtn active={tab === 'jahre'}   onClick={() => setTab('jahre')}   icon={<CalendarRange size={15} />} label="Geschäftsjahre" />
+        <TabBtn active={tab === 'bilanz'}    onClick={() => setTab('bilanz')}    icon={<Scale size={15} />}         label="Bilanz" />
+        <TabBtn active={tab === 'erfolg'}    onClick={() => setTab('erfolg')}    icon={<BookOpen size={15} />}      label="Erfolgsrechnung" />
+        <TabBtn active={tab === 'buchungen'} onClick={() => setTab('buchungen')} icon={<ReceiptText size={15} />}   label="Buchungen" />
+        <TabBtn active={tab === 'gruppen'}   onClick={() => setTab('gruppen')}   icon={<Layers size={15} />}        label="Kontengruppen" />
+        <TabBtn active={tab === 'jahre'}     onClick={() => setTab('jahre')}     icon={<CalendarRange size={15} />} label="Geschäftsjahre" />
       </div>
 
-      {/* Bilanz */}
       {tab === 'bilanz' && (
-        <BilanztTab
+        <BilanzTab
           aktiv={aktiv} passiv={passiv}
           totalAktiv={totalAktiv} totalPassiv={totalPassiv}
           groups={groups} isAdmin={isAdmin}
-          onAccountsChange={setAccounts}
-          supabase={supabase}
+          onAccountsChange={setAccounts} supabase={supabase}
         />
       )}
 
-      {/* Erfolgsrechnung */}
       {tab === 'erfolg' && (
         <ErfolgsTab
           ertrag={ertrag} aufwand={aufwand}
           totalErtrag={totalErtrag} totalAufwand={totalAufwand} ergebnis={ergebnis}
           groups={groups} isAdmin={isAdmin}
+          onAccountsChange={setAccounts} supabase={supabase}
+        />
+      )}
+
+      {tab === 'buchungen' && (
+        <BuchungenTab
+          accounts={accounts.filter(a => a.is_active)}
+          journalEntries={journalEntries}
+          onJournalEntriesChange={setJournalEntries}
           onAccountsChange={setAccounts}
           supabase={supabase}
         />
       )}
 
-      {/* Kontengruppen */}
       {tab === 'gruppen' && (
         <GruppenTab
           groups={groups} isAdmin={isAdmin}
-          onGroupsChange={setGroups}
           supabase={supabase}
         />
       )}
 
-      {/* Geschäftsjahre */}
       {tab === 'jahre' && (
         <JahreTab
           fiscalYears={fiscalYears} isAdmin={isAdmin}
-          onFiscalYearsChange={setFiscalYears}
-          supabase={supabase}
+          onFiscalYearsChange={setFiscalYears} supabase={supabase}
         />
       )}
     </div>
@@ -126,22 +180,24 @@ export default function BuchhaltungClient({
 }
 
 // ── Bilanz Tab ───────────────────────────────────────────────
-function BilanztTab({ aktiv, passiv, totalAktiv, totalPassiv, groups, isAdmin, onAccountsChange, supabase }: any) {
-  const aktivGroups  = groups.filter((g: AccountGroup) => g.type === 'aktiv')
-  const passivGroups = groups.filter((g: AccountGroup) => g.type === 'passiv')
+function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, groups, isAdmin, onAccountsChange, supabase }: {
+  aktiv: Account[]; passiv: Account[]
+  totalAktiv: number; totalPassiv: number
+  groups: AccountGroup[]; isAdmin: boolean
+  onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>; supabase: ReturnType<typeof createClient>
+}) {
   return (
     <div>
-      <ActionBar label="Konto eröffnen" onNew={() => {}} groups={groups} type="aktiv" isAdmin={isAdmin} onAccountsChange={onAccountsChange} supabase={supabase} showTypeFilter />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AccountSide
           title="Aktivkonten" type="aktiv" accounts={aktiv} total={totalAktiv}
-          groups={aktivGroups} isAdmin={isAdmin} allGroups={groups}
+          groups={groups} isAdmin={isAdmin} allGroups={groups}
           onAccountsChange={onAccountsChange} supabase={supabase}
           icon={<TrendingUp size={18} className="text-blue-600" />}
         />
         <AccountSide
           title="Passivkonten" type="passiv" accounts={passiv} total={totalPassiv}
-          groups={passivGroups} isAdmin={isAdmin} allGroups={groups}
+          groups={groups} isAdmin={isAdmin} allGroups={groups}
           onAccountsChange={onAccountsChange} supabase={supabase}
           icon={<TrendingDown size={18} className="text-purple-600" />}
         />
@@ -166,22 +222,24 @@ function BilanztTab({ aktiv, passiv, totalAktiv, totalPassiv, groups, isAdmin, o
 }
 
 // ── Erfolgsrechnung Tab ──────────────────────────────────────
-function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, groups, isAdmin, onAccountsChange, supabase }: any) {
-  const ertragGroups  = groups.filter((g: AccountGroup) => g.type === 'ertrag')
-  const aufwandGroups = groups.filter((g: AccountGroup) => g.type === 'aufwand')
+function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, groups, isAdmin, onAccountsChange, supabase }: {
+  ertrag: Account[]; aufwand: Account[]
+  totalErtrag: number; totalAufwand: number; ergebnis: number
+  groups: AccountGroup[]; isAdmin: boolean
+  onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>; supabase: ReturnType<typeof createClient>
+}) {
   return (
     <div>
-      <ActionBar label="Konto eröffnen" onNew={() => {}} groups={groups} type="ertrag" isAdmin={isAdmin} onAccountsChange={onAccountsChange} supabase={supabase} showTypeFilter />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AccountSide
           title="Ertragskonten" type="ertrag" accounts={ertrag} total={totalErtrag}
-          groups={ertragGroups} isAdmin={isAdmin} allGroups={groups}
+          groups={groups} isAdmin={isAdmin} allGroups={groups}
           onAccountsChange={onAccountsChange} supabase={supabase}
           icon={<TrendingUp size={18} className="text-green-600" />}
         />
         <AccountSide
           title="Aufwandskonten" type="aufwand" accounts={aufwand} total={totalAufwand}
-          groups={aufwandGroups} isAdmin={isAdmin} allGroups={groups}
+          groups={groups} isAdmin={isAdmin} allGroups={groups}
           onAccountsChange={onAccountsChange} supabase={supabase}
           icon={<TrendingDown size={18} className="text-red-600" />}
         />
@@ -207,19 +265,21 @@ function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, grou
   )
 }
 
-// ── Account Side (grouped) ───────────────────────────────────
+// ── Account Side (hierarchical) ──────────────────────────────
 function AccountSide({ title, type, accounts, total, groups, isAdmin, allGroups, onAccountsChange, supabase, icon }: {
   title: string; type: AccountType; accounts: Account[]; total: number
   groups: AccountGroup[]; isAdmin: boolean; allGroups: AccountGroup[]
-  onAccountsChange: (fn: (prev: Account[]) => Account[]) => void
-  supabase: any; icon: React.ReactNode
+  onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
+  supabase: ReturnType<typeof createClient>; icon: React.ReactNode
 }) {
-  const [modal, setModal]   = useState<'new' | 'edit' | null>(null)
-  const [editing, setEditing] = useState<Account | null>(null)
+  const [modal, setModal]         = useState<'new' | 'edit' | null>(null)
+  const [editing, setEditing]     = useState<Account | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-  const [error, setError]   = useState<string | null>(null)
-  const [isPending, start]  = useTransition()
+  const [error, setError]         = useState<string | null>(null)
+  const [isPending, start]        = useTransition()
 
+  const tree = buildGroupTree(groups, accounts, type)
+  const groupedAccountIds = new Set(accounts.filter(a => a.group_id).map(a => a.id))
   const ungrouped = accounts.filter(a => !a.group_id)
 
   async function handleSave(data: Omit<Account, 'id' | 'is_active'>) {
@@ -228,11 +288,11 @@ function AccountSide({ title, type, accounts, total, groups, isAdmin, allGroups,
       if (modal === 'new') {
         const { data: created, error: err } = await supabase.from('accounts').insert({ ...data, is_active: true, type }).select().single()
         if (err) { setError(err.message); return }
-        onAccountsChange(prev => [...prev, created].sort((a, b) => a.number.localeCompare(b.number)))
+        onAccountsChange(prev => [...prev, created as Account].sort((a, b) => a.number.localeCompare(b.number)))
       } else if (modal === 'edit' && editing) {
         const { data: updated, error: err } = await supabase.from('accounts').update(data).eq('id', editing.id).select().single()
         if (err) { setError(err.message); return }
-        onAccountsChange(prev => prev.map(a => a.id === editing.id ? updated : a))
+        onAccountsChange(prev => prev.map(a => a.id === editing.id ? updated as Account : a))
       }
       setModal(null); setEditing(null)
     })
@@ -246,63 +306,46 @@ function AccountSide({ title, type, accounts, total, groups, isAdmin, allGroups,
     })
   }
 
+  const rowProps = {
+    isAdmin, deleteConfirm,
+    onEdit: (a: Account) => { setEditing(a); setModal('edit'); setError(null) },
+    onDelete: (id: string) => setDeleteConfirm(id),
+    onConfirmDelete: handleDelete,
+    onCancelDelete: () => setDeleteConfirm(null),
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
       <div className="flex items-center gap-2 px-5 py-4 border-b border-[#E1D6C2]">
         {icon}
         <h2 className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>{title}</h2>
-        <button onClick={() => { setEditing(null); setModal('new'); setError(null) }} className="ml-auto flex items-center gap-1 text-xs text-[#6B8E7F] hover:text-[#5a7a6c] font-medium">
+        <button
+          onClick={() => { setEditing(null); setModal('new'); setError(null) }}
+          className="ml-auto flex items-center gap-1 text-xs text-[#6B8E7F] hover:text-[#5a7a6c] font-medium"
+        >
           <Plus size={13} /> Konto
         </button>
       </div>
 
-      {/* Grouped sections */}
-      {groups.map(group => {
-        const groupAccounts = accounts.filter(a => a.group_id === group.id)
-        if (groupAccounts.length === 0) return null
-        const groupTotal = groupAccounts.reduce((s, a) => s + Number(a.balance), 0)
-        return (
-          <div key={group.id}>
-            <div className="px-5 py-2 bg-[#F7F2EC] border-b border-[#E1D6C2]">
-              <span className="text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">{group.name}</span>
-              <span className="float-right text-xs text-[#7A6E60] font-medium">{fmt(groupTotal)}</span>
-            </div>
-            <AccountRows
-              accounts={groupAccounts} isAdmin={isAdmin}
-              deleteConfirm={deleteConfirm}
-              onEdit={a => { setEditing(a); setModal('edit'); setError(null) }}
-              onDelete={id => setDeleteConfirm(id)}
-              onConfirmDelete={handleDelete}
-              onCancelDelete={() => setDeleteConfirm(null)}
-            />
-          </div>
-        )
-      })}
+      {tree.length === 0 && ungrouped.length === 0 && (
+        <p className="text-center text-sm text-[#7A6E60] py-10">Keine Konten vorhanden</p>
+      )}
 
-      {/* Ungrouped */}
+      {tree.map(node => (
+        <GroupNodeRow key={node.id} node={node} depth={0} rowProps={rowProps} />
+      ))}
+
       {ungrouped.length > 0 && (
         <div>
-          {groups.length > 0 && (
+          {tree.length > 0 && (
             <div className="px-5 py-2 bg-[#F7F2EC] border-b border-[#E1D6C2]">
               <span className="text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Ohne Gruppe</span>
             </div>
           )}
-          <AccountRows
-            accounts={ungrouped} isAdmin={isAdmin}
-            deleteConfirm={deleteConfirm}
-            onEdit={a => { setEditing(a); setModal('edit'); setError(null) }}
-            onDelete={id => setDeleteConfirm(id)}
-            onConfirmDelete={handleDelete}
-            onCancelDelete={() => setDeleteConfirm(null)}
-          />
+          <AccountRows accounts={ungrouped} {...rowProps} indent={0} />
         </div>
       )}
 
-      {accounts.length === 0 && (
-        <p className="text-center text-sm text-[#7A6E60] py-10">Keine Konten vorhanden</p>
-      )}
-
-      {/* Total */}
       <div className="flex justify-between px-5 py-3 bg-[#F7F2EC] border-t border-[#E1D6C2]">
         <span className="font-semibold text-sm text-[#2A2622]">Total</span>
         <span className="font-bold text-[#2A2622]">{fmt(total)}</span>
@@ -320,23 +363,78 @@ function AccountSide({ title, type, accounts, total, groups, isAdmin, allGroups,
   )
 }
 
-function AccountRows({ accounts, isAdmin, deleteConfirm, onEdit, onDelete, onConfirmDelete, onCancelDelete }: {
-  accounts: Account[]; isAdmin: boolean; deleteConfirm: string | null
+// ── Recursive group node renderer ────────────────────────────
+function GroupNodeRow({ node, depth, rowProps }: {
+  node: GroupNode; depth: number
+  rowProps: {
+    isAdmin: boolean; deleteConfirm: string | null
+    onEdit: (a: Account) => void; onDelete: (id: string) => void
+    onConfirmDelete: (id: string) => void; onCancelDelete: () => void
+  }
+}) {
+  const total = subtreeTotal(node)
+  const hasContent = node.nodeAccounts.length > 0 || node.children.some(c => subtreeTotal(c) !== 0 || c.nodeAccounts.length > 0 || c.children.length > 0)
+
+  const isKlasse = node.level === 'klasse'
+  const headerCls = isKlasse
+    ? 'px-5 py-2 bg-[#EDE7DA] border-b border-[#E1D6C2]'
+    : depth === 1
+      ? 'px-5 py-1.5 bg-[#F4EDE2] border-b border-[#E1D6C2]'
+      : 'px-5 py-1.5 bg-[#F7F2EC] border-b border-[#E1D6C2]'
+
+  const labelCls = isKlasse
+    ? 'text-xs font-bold text-[#2A2622] uppercase tracking-wide'
+    : depth === 1
+      ? 'text-xs font-semibold text-[#4A4138] uppercase tracking-wide'
+      : 'text-xs font-medium text-[#7A6E60]'
+
+  const indentPx = depth === 0 ? '' : depth === 1 ? 'pl-4' : 'pl-8'
+
+  return (
+    <>
+      <div className={headerCls}>
+        <div className={`flex items-center justify-between ${indentPx}`}>
+          <span className={labelCls}>
+            {node.account_number && <span className="font-mono mr-2 opacity-60">{node.account_number}</span>}
+            {node.name}
+          </span>
+          {total !== 0 && (
+            <span className={`font-mono text-xs ${isKlasse ? 'font-bold text-[#2A2622]' : 'text-[#7A6E60]'}`}>
+              {fmt(total)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {node.nodeAccounts.length > 0 && (
+        <AccountRows accounts={node.nodeAccounts} {...rowProps} indent={depth + 1} />
+      )}
+
+      {node.children.map(child => (
+        <GroupNodeRow key={child.id} node={child} depth={depth + 1} rowProps={rowProps} />
+      ))}
+    </>
+  )
+}
+
+function AccountRows({ accounts, isAdmin, deleteConfirm, onEdit, onDelete, onConfirmDelete, onCancelDelete, indent }: {
+  accounts: Account[]; isAdmin: boolean; deleteConfirm: string | null; indent: number
   onEdit: (a: Account) => void; onDelete: (id: string) => void
   onConfirmDelete: (id: string) => void; onCancelDelete: () => void
 }) {
+  const pl = indent === 0 ? 'pl-5' : indent === 1 ? 'pl-7' : indent === 2 ? 'pl-9' : 'pl-11'
   return (
     <table className="w-full text-sm">
       <tbody>
         {accounts.map(account => (
           <tr key={account.id} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] group">
-            <td className="pl-5 pr-2 py-2.5 font-mono text-xs text-[#7A6E60] w-16">{account.number}</td>
-            <td className="py-2.5 pr-3">
-              <div className="font-medium text-[#2A2622]">{account.name}</div>
+            <td className={`${pl} pr-2 py-2 font-mono text-xs text-[#7A6E60] w-16`}>{account.number}</td>
+            <td className="py-2 pr-3">
+              <div className="font-medium text-[#2A2622] text-sm">{account.name}</div>
               {account.description && <div className="text-xs text-[#7A6E60]">{account.description}</div>}
             </td>
-            <td className="py-2.5 pr-4 text-right font-medium text-[#2A2622] whitespace-nowrap">{fmt(Number(account.balance))}</td>
-            <td className="py-2.5 pr-3 w-16">
+            <td className="py-2 pr-4 text-right font-medium text-[#2A2622] whitespace-nowrap text-sm">{fmt(Number(account.balance))}</td>
+            <td className="py-2 pr-3 w-16">
               {deleteConfirm === account.id ? (
                 <div className="flex gap-1">
                   <button onClick={() => onConfirmDelete(account.id)} className="text-red-600 hover:text-red-700 p-1"><Check size={13} /></button>
@@ -356,94 +454,226 @@ function AccountRows({ accounts, isAdmin, deleteConfirm, onEdit, onDelete, onCon
   )
 }
 
-// ── Kontengruppen Tab ────────────────────────────────────────
-function GruppenTab({ groups, isAdmin, onGroupsChange, supabase }: {
-  groups: AccountGroup[]; isAdmin: boolean
-  onGroupsChange: (g: AccountGroup[]) => void; supabase: any
+// ── Buchungen Tab ────────────────────────────────────────────
+function BuchungenTab({ accounts, journalEntries, onJournalEntriesChange, onAccountsChange, supabase }: {
+  accounts: Account[]
+  journalEntries: JournalEntry[]
+  onJournalEntriesChange: React.Dispatch<React.SetStateAction<JournalEntry[]>>
+  onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
+  supabase: ReturnType<typeof createClient>
 }) {
-  const [modal, setModal]   = useState(false)
-  const [editing, setEditing] = useState<AccountGroup | null>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-  const [error, setError]   = useState<string | null>(null)
-  const [isPending, start]  = useTransition()
+  const [showForm, setShowForm] = useState(false)
+  const [error, setError]       = useState<string | null>(null)
+  const [isPending, start]      = useTransition()
 
-  async function handleSave(data: Omit<AccountGroup, 'id'>) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [date, setDate]         = useState(today)
+  const [description, setDesc]  = useState('')
+  const [debitId, setDebitId]   = useState('')
+  const [creditId, setCreditId] = useState('')
+  const [amount, setAmount]     = useState('')
+
+  function resetForm() {
+    setDate(today); setDesc(''); setDebitId(''); setCreditId(''); setAmount(''); setError(null)
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const amt = parseFloat(amount)
+    if (!amt || amt <= 0) { setError('Betrag muss grösser als 0 sein'); return }
+    if (debitId === creditId) { setError('Soll- und Habenkonto dürfen nicht identisch sein'); return }
+
+    const debitAcc  = accounts.find(a => a.id === debitId)
+    const creditAcc = accounts.find(a => a.id === creditId)
+    if (!debitAcc || !creditAcc) { setError('Konten nicht gefunden'); return }
+
     setError(null)
     start(async () => {
-      if (!editing) {
-        const { data: created, error: err } = await supabase.from('account_groups').insert(data).select().single()
-        if (err) { setError(err.message); return }
-        onGroupsChange([...groups, created].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)))
-      } else {
-        const { data: updated, error: err } = await supabase.from('account_groups').update(data).eq('id', editing.id).select().single()
-        if (err) { setError(err.message); return }
-        onGroupsChange(groups.map(g => g.id === editing.id ? updated : g))
-      }
-      setModal(false); setEditing(null)
+      const { data: entry, error: err } = await supabase
+        .from('journal_entries')
+        .insert({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt })
+        .select('*, debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
+        .single()
+      if (err) { setError(err.message); return }
+
+      // Update account balances (double-entry)
+      const debitDelta  = (debitAcc.type === 'aktiv'  || debitAcc.type === 'aufwand')  ?  amt : -amt
+      const creditDelta = (creditAcc.type === 'passiv' || creditAcc.type === 'ertrag') ?  amt : -amt
+
+      await Promise.all([
+        supabase.from('accounts').update({ balance: Number(debitAcc.balance)  + debitDelta  }).eq('id', debitId),
+        supabase.from('accounts').update({ balance: Number(creditAcc.balance) + creditDelta }).eq('id', creditId),
+      ])
+
+      onJournalEntriesChange(prev => [entry as JournalEntry, ...prev])
+      onAccountsChange(prev => prev.map(a => {
+        if (a.id === debitId)  return { ...a, balance: Number(a.balance) + debitDelta }
+        if (a.id === creditId) return { ...a, balance: Number(a.balance) + creditDelta }
+        return a
+      }))
+      resetForm()
+      setShowForm(false)
     })
   }
 
-  async function handleDelete(id: string) {
-    start(async () => {
-      await supabase.from('account_groups').delete().eq('id', id)
-      onGroupsChange(groups.filter(g => g.id !== id))
-      setDeleteConfirm(null)
-    })
-  }
-
-  const byType = (['aktiv', 'passiv', 'ertrag', 'aufwand'] as AccountType[]).map(type => ({
-    type, items: groups.filter(g => g.type === type)
-  }))
+  const sortedAccounts = [...accounts].sort((a, b) => a.number.localeCompare(b.number))
 
   return (
     <div>
       <div className="flex justify-end mb-5">
-        <NewBtn onClick={() => { setEditing(null); setModal(true); setError(null) }} label="Gruppe erstellen" />
+        <button
+          onClick={() => { setShowForm(!showForm); resetForm() }}
+          className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          <Plus size={16} /> Buchung erfassen
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-        {byType.map(({ type, items }) => (
-          <div key={type} className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
-            <div className="px-5 py-3 border-b border-[#E1D6C2] flex items-center justify-between">
-              <span className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>{TYPE_LABELS[type]}</span>
-              <span className="text-xs text-[#7A6E60]">{items.length} Gruppe{items.length !== 1 ? 'n' : ''}</span>
+      {showForm && (
+        <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-[#E1D6C2] p-5 mb-6">
+          <h3 className="text-base font-semibold text-[#2A2622] mb-4" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
+            Neue Buchung
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Datum *">
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} required className={inp} />
+            </Field>
+            <Field label="Betrag (CHF) *">
+              <input type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(e.target.value)} required placeholder="0.00" className={inp} />
+            </Field>
+            <Field label="Soll-Konto (Debit) *">
+              <select value={debitId} onChange={e => setDebitId(e.target.value)} required className={inp}>
+                <option value="">— Konto wählen —</option>
+                {sortedAccounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.number} {a.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Haben-Konto (Kredit) *">
+              <select value={creditId} onChange={e => setCreditId(e.target.value)} required className={inp}>
+                <option value="">— Konto wählen —</option>
+                {sortedAccounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.number} {a.name}</option>
+                ))}
+              </select>
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Beschreibung *">
+                <input value={description} onChange={e => setDesc(e.target.value)} required placeholder="z.B. Mieteinnahme Januar" className={inp} />
+              </Field>
             </div>
-            {items.length === 0 ? (
-              <p className="text-sm text-[#7A6E60] text-center py-6">Keine Gruppen</p>
-            ) : (
-              <ul>
-                {items.map(g => (
-                  <li key={g.id} className="flex items-center justify-between px-5 py-3 border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] group">
+          </div>
+          {debitId && creditId && (
+            <div className="mt-3 text-xs text-[#7A6E60] bg-[#F7F2EC] rounded-lg px-3 py-2">
+              Soll: <span className="font-medium text-[#2A2622]">{accounts.find(a => a.id === debitId)?.number} {accounts.find(a => a.id === debitId)?.name}</span>
+              {' / '}
+              Haben: <span className="font-medium text-[#2A2622]">{accounts.find(a => a.id === creditId)?.number} {accounts.find(a => a.id === creditId)?.name}</span>
+            </div>
+          )}
+          {error && <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+          <div className="flex gap-3 mt-4">
+            <button
+              type="button"
+              onClick={() => { setShowForm(false); resetForm() }}
+              className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors"
+            >
+              Abbrechen
+            </button>
+            <button
+              type="submit"
+              disabled={isPending}
+              className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {isPending ? 'Buchen…' : 'Buchen'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
+        {journalEntries.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-[#7A6E60]">
+            <ReceiptText size={40} className="mb-3 opacity-30" />
+            <p className="text-sm">Noch keine Buchungen vorhanden</p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
+                <th className="text-left px-5 py-3">Datum</th>
+                <th className="text-left py-3">Beschreibung</th>
+                <th className="text-left py-3 hidden sm:table-cell">Soll</th>
+                <th className="text-left py-3 hidden sm:table-cell">Haben</th>
+                <th className="text-right py-3 pr-5">Betrag (CHF)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {journalEntries.map(entry => (
+                <tr key={entry.id} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6]">
+                  <td className="px-5 py-3 text-[#4A4138] whitespace-nowrap">{fmtDate(entry.date)}</td>
+                  <td className="py-3 pr-4 text-[#2A2622] font-medium">{entry.description}</td>
+                  <td className="py-3 pr-4 hidden sm:table-cell">
+                    <span className="font-mono text-xs text-[#7A6E60]">
+                      {entry.debit_account?.number}
+                    </span>
+                    <span className="text-xs text-[#4A4138] ml-1">{entry.debit_account?.name}</span>
+                  </td>
+                  <td className="py-3 pr-4 hidden sm:table-cell">
+                    <span className="font-mono text-xs text-[#7A6E60]">
+                      {entry.credit_account?.number}
+                    </span>
+                    <span className="text-xs text-[#4A4138] ml-1">{entry.credit_account?.name}</span>
+                  </td>
+                  <td className="py-3 pr-5 text-right font-semibold text-[#2A2622]">{fmt(Number(entry.amount))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Kontengruppen Tab ────────────────────────────────────────
+function GruppenTab({ groups, isAdmin, supabase }: {
+  groups: AccountGroup[]; isAdmin: boolean; supabase: ReturnType<typeof createClient>
+}) {
+  const byType = (['aktiv', 'passiv', 'ertrag', 'aufwand'] as AccountType[]).map(type => ({
+    type, items: groups.filter(g => g.type === type).sort((a, b) => a.sort_order - b.sort_order || (a.account_number ?? '').localeCompare(b.account_number ?? ''))
+  }))
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      {byType.map(({ type, items }) => (
+        <div key={type} className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
+          <div className="px-5 py-3 border-b border-[#E1D6C2] flex items-center justify-between">
+            <span className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>{TYPE_LABELS[type]}</span>
+            <span className="text-xs text-[#7A6E60]">{items.length} Gruppe{items.length !== 1 ? 'n' : ''}</span>
+          </div>
+          {items.length === 0 ? (
+            <p className="text-sm text-[#7A6E60] text-center py-6">Keine Gruppen</p>
+          ) : (
+            <ul>
+              {items.map(g => (
+                <li key={g.id} className="flex items-center justify-between px-5 py-2.5 border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6]">
+                  <div className="flex items-center gap-2">
+                    {g.account_number && (
+                      <span className="font-mono text-xs text-[#7A6E60] w-8">{g.account_number}</span>
+                    )}
                     <div>
                       <p className="font-medium text-[#2A2622] text-sm">{g.name}</p>
-                      {g.description && <p className="text-xs text-[#7A6E60]">{g.description}</p>}
+                      {g.level && (
+                        <p className="text-xs text-[#7A6E60] capitalize">{g.level}</p>
+                      )}
                     </div>
-                    {deleteConfirm === g.id ? (
-                      <div className="flex gap-1">
-                        <button onClick={() => handleDelete(g.id)} className="text-red-600 p-1"><Check size={13} /></button>
-                        <button onClick={() => setDeleteConfirm(null)} className="text-[#7A6E60] p-1"><X size={13} /></button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => { setEditing(g); setModal(true); setError(null) }} className="text-[#7A6E60] hover:text-[#6B8E7F] p-1"><Pencil size={13} /></button>
-                        {isAdmin && <button onClick={() => setDeleteConfirm(g.id)} className="text-[#7A6E60] hover:text-red-600 p-1"><Trash2 size={13} /></button>}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {modal && (
-        <GroupModal
-          initial={editing} onSave={handleSave}
-          onClose={() => { setModal(false); setEditing(null) }}
-          isPending={isPending} error={error}
-        />
-      )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
     </div>
   )
 }
@@ -451,13 +681,13 @@ function GruppenTab({ groups, isAdmin, onGroupsChange, supabase }: {
 // ── Geschäftsjahre Tab ───────────────────────────────────────
 function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, supabase }: {
   fiscalYears: FiscalYear[]; isAdmin: boolean
-  onFiscalYearsChange: (y: FiscalYear[]) => void; supabase: any
+  onFiscalYearsChange: React.Dispatch<React.SetStateAction<FiscalYear[]>>; supabase: ReturnType<typeof createClient>
 }) {
-  const [modal, setModal]   = useState(false)
+  const [modal, setModal]     = useState(false)
   const [editing, setEditing] = useState<FiscalYear | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-  const [error, setError]   = useState<string | null>(null)
-  const [isPending, start]  = useTransition()
+  const [error, setError]     = useState<string | null>(null)
+  const [isPending, start]    = useTransition()
 
   async function handleSave(data: Omit<FiscalYear, 'id'>) {
     setError(null)
@@ -465,11 +695,11 @@ function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, supabase }: {
       if (!editing) {
         const { data: created, error: err } = await supabase.from('fiscal_years').insert(data).select().single()
         if (err) { setError(err.message); return }
-        onFiscalYearsChange([created, ...fiscalYears])
+        onFiscalYearsChange(prev => [created as FiscalYear, ...prev])
       } else {
         const { data: updated, error: err } = await supabase.from('fiscal_years').update(data).eq('id', editing.id).select().single()
         if (err) { setError(err.message); return }
-        onFiscalYearsChange(fiscalYears.map(y => y.id === editing.id ? updated : y))
+        onFiscalYearsChange(prev => prev.map(y => y.id === editing.id ? updated as FiscalYear : y))
       }
       setModal(false); setEditing(null)
     })
@@ -478,7 +708,7 @@ function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, supabase }: {
   async function handleDelete(id: string) {
     start(async () => {
       await supabase.from('fiscal_years').delete().eq('id', id)
-      onFiscalYearsChange(fiscalYears.filter(y => y.id !== id))
+      onFiscalYearsChange(prev => prev.filter(y => y.id !== id))
       setDeleteConfirm(null)
     })
   }
@@ -487,14 +717,19 @@ function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, supabase }: {
     start(async () => {
       const { data: updated } = await supabase
         .from('fiscal_years').update({ is_closed: !year.is_closed }).eq('id', year.id).select().single()
-      if (updated) onFiscalYearsChange(fiscalYears.map(y => y.id === year.id ? updated : y))
+      if (updated) onFiscalYearsChange(prev => prev.map(y => y.id === year.id ? updated as FiscalYear : y))
     })
   }
 
   return (
     <div>
       <div className="flex justify-end mb-5">
-        <NewBtn onClick={() => { setEditing(null); setModal(true); setError(null) }} label="Geschäftsjahr eröffnen" />
+        <button
+          onClick={() => { setEditing(null); setModal(true); setError(null) }}
+          className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          <Plus size={16} /> Geschäftsjahr eröffnen
+        </button>
       </div>
 
       <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
@@ -561,7 +796,7 @@ function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, supabase }: {
 // ── Modals ───────────────────────────────────────────────────
 function AccountModal({ mode, initial, fixedType, groups, onSave, onClose, isPending, error }: {
   mode: 'new' | 'edit'; initial: Account | null; fixedType: AccountType
-  groups: AccountGroup[]; onSave: (d: any) => void; onClose: () => void
+  groups: AccountGroup[]; onSave: (d: Omit<Account, 'id' | 'is_active'>) => void; onClose: () => void
   isPending: boolean; error: string | null
 }) {
   const [number, setNumber]   = useState(initial?.number ?? '')
@@ -575,6 +810,8 @@ function AccountModal({ mode, initial, fixedType, groups, onSave, onClose, isPen
     onSave({ number, name, type: fixedType, group_id: groupId || null, balance: parseFloat(balance) || 0, description: desc || null })
   }
 
+  const leafGroups = groups.filter(g => g.type === fixedType)
+
   return (
     <Modal title={mode === 'new' ? 'Konto eröffnen' : 'Konto bearbeiten'} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -585,14 +822,17 @@ function AccountModal({ mode, initial, fixedType, groups, onSave, onClose, isPen
           <Field label="Gruppe">
             <select value={groupId} onChange={e => setGroupId(e.target.value)} className={inp}>
               <option value="">— keine —</option>
-              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              {leafGroups
+                .sort((a, b) => (a.account_number ?? '').localeCompare(b.account_number ?? ''))
+                .map(g => <option key={g.id} value={g.id}>{g.account_number ? `${g.account_number} ` : ''}{g.name}</option>)
+              }
             </select>
           </Field>
         </div>
         <Field label="Bezeichnung *">
           <input value={name} onChange={e => setName(e.target.value)} required placeholder="z.B. Kasse, Miete…" className={inp} />
         </Field>
-        <Field label="Saldo (CHF)">
+        <Field label="Anfangssaldo (CHF)">
           <input type="number" step="0.01" value={balance} onChange={e => setBalance(e.target.value)} className={inp} />
         </Field>
         <Field label="Beschreibung">
@@ -604,52 +844,8 @@ function AccountModal({ mode, initial, fixedType, groups, onSave, onClose, isPen
   )
 }
 
-function GroupModal({ initial, onSave, onClose, isPending, error }: {
-  initial: AccountGroup | null; onSave: (d: any) => void; onClose: () => void
-  isPending: boolean; error: string | null
-}) {
-  const [name, setName]     = useState(initial?.name ?? '')
-  const [type, setType]     = useState<AccountType>(initial?.type ?? 'aktiv')
-  const [desc, setDesc]     = useState(initial?.description ?? '')
-  const [order, setOrder]   = useState(String(initial?.sort_order ?? 0))
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    onSave({ name, type, description: desc || null, sort_order: parseInt(order) || 0 })
-  }
-
-  return (
-    <Modal title={initial ? 'Gruppe bearbeiten' : 'Gruppe erstellen'} onClose={onClose}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Bezeichnung *">
-            <input value={name} onChange={e => setName(e.target.value)} required placeholder="z.B. Umlaufvermögen" className={inp} />
-          </Field>
-          <Field label="Typ *">
-            <select value={type} onChange={e => setType(e.target.value as AccountType)} className={inp}>
-              <option value="aktiv">Aktiv</option>
-              <option value="passiv">Passiv</option>
-              <option value="ertrag">Ertrag</option>
-              <option value="aufwand">Aufwand</option>
-            </select>
-          </Field>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Beschreibung">
-            <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optional" className={inp} />
-          </Field>
-          <Field label="Reihenfolge">
-            <input type="number" value={order} onChange={e => setOrder(e.target.value)} className={inp} />
-          </Field>
-        </div>
-        <ModalActions onClose={onClose} isPending={isPending} error={error} label={initial ? 'Speichern' : 'Erstellen'} />
-      </form>
-    </Modal>
-  )
-}
-
 function FiscalYearModal({ initial, onSave, onClose, isPending, error }: {
-  initial: FiscalYear | null; onSave: (d: any) => void; onClose: () => void
+  initial: FiscalYear | null; onSave: (d: Omit<FiscalYear, 'id'>) => void; onClose: () => void
   isPending: boolean; error: string | null
 }) {
   const [name, setName]   = useState(initial?.name ?? '')
@@ -725,18 +921,6 @@ function TabBtn({ active, onClick, icon, label }: { active: boolean; onClick: ()
       {icon}{label}
     </button>
   )
-}
-
-function NewBtn({ onClick, label }: { onClick: () => void; label: string }) {
-  return (
-    <button onClick={onClick} className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-      <Plus size={16} />{label}
-    </button>
-  )
-}
-
-function ActionBar({ label, groups, type, isAdmin, onAccountsChange, supabase, showTypeFilter }: any) {
-  return <div /> // placeholder – add button is inline in AccountSide header
 }
 
 const inp = 'w-full border border-[#E1D6C2] rounded-lg px-3 py-2 text-sm text-[#2A2622] focus:outline-none focus:ring-2 focus:ring-[#6B8E7F]/40 focus:border-[#6B8E7F] bg-white'

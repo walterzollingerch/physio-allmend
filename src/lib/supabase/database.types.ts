@@ -292,6 +292,36 @@ export interface Database {
         }
         Relationships: []
       }
+      journal_entries: {
+        Row: {
+          id: string
+          date: string
+          description: string
+          debit_account_id: string
+          credit_account_id: string
+          amount: number
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          date: string
+          description: string
+          debit_account_id: string
+          credit_account_id: string
+          amount: number
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          date?: string
+          description?: string
+          debit_account_id?: string
+          credit_account_id?: string
+          amount?: number
+        }
+        Relationships: []
+      }
       bookings: {
         Row: {
           id: string

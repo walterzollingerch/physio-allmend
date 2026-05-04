@@ -13,10 +13,11 @@ export default async function BuchhaltungPage() {
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
   if (!profile || !['admin', 'physio'].includes(profile.role)) redirect('/dashboard')
 
-  const [{ data: accounts }, { data: groups }, { data: fiscalYears }] = await Promise.all([
+  const [{ data: accounts }, { data: groups }, { data: fiscalYears }, { data: journalEntries }] = await Promise.all([
     supabase.from('accounts').select('*').order('number'),
     supabase.from('account_groups').select('*').order('sort_order').order('name'),
     supabase.from('fiscal_years').select('*').order('start_date', { ascending: false }),
+    supabase.from('journal_entries').select('*, debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)').order('date', { ascending: false }).order('created_at', { ascending: false }).limit(200),
   ])
 
   return (
@@ -53,6 +54,7 @@ export default async function BuchhaltungPage() {
           initialAccounts={accounts ?? []}
           initialGroups={groups ?? []}
           initialFiscalYears={fiscalYears ?? []}
+          initialJournalEntries={journalEntries ?? []}
           isAdmin={profile.role === 'admin'}
         />
       </main>
