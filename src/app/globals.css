@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+:root {
+  --paper: #FBF7F1;
+  --cream: #F4EDE2;
+  --ink: #2A2622;
+  --ink-2: #4A4138;
+  --ink-3: #7A6E60;
+  --line: #E1D6C2;
+  --accent: #6B8E7F;
+  --accent-deep: #4F7163;
+  --accent-soft: #C7D6CD;
+}
+
+html, body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Inter", "Helvetica Neue", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
