@@ -36,7 +36,7 @@ const REVIEWS = [
   { name: 'Peter A.', when: 'vor 4 Monaten', stars: 5, text: 'Ich komme seit zwei Jahren regelmässig zu Pilates. Anna passt jede Stunde an, nichts ist Routine. Mein Rücken dankt es.' },
 ]
 
-const MAPS_URL = 'https://www.google.ch/maps/place/Physio+Allmend+%2FPilates/@47.4738674,8.2950277,773m/data=!3m2!1e3!4b1'
+const MAPS_URL = 'https://www.google.com/maps/place/Physio+Allmend+%2FPilates/@47.4738674,8.2950277,627m/data=!3m2!1e3!4b1!4m6!3m5!1s0x47906d5649bd7e93:0x144d3715b94d6c5b!8m2!3d47.4738674!4d8.2976026!16s%2Fg%2F11px8x9dwz?entry=ttu&g_ep=EgoyMDI2MDQyOS4wIKXMDSoASAFQAw%3D%3D'
 
 // ─── Components ─────────────────────────────────────────────────────────────
 
@@ -132,7 +132,7 @@ function Hero() {
     <section id="top" className="bg-[#FBF7F1] py-16 sm:py-24">
       <div className="max-w-5xl mx-auto px-4 grid md:grid-cols-2 gap-12 items-center">
         <div>
-          <SectionLabel>Physiotherapie · Pilates · Birmensdorf ZH</SectionLabel>
+          <SectionLabel>Physiotherapie · Pilates · Baden AG</SectionLabel>
           <h1 className="text-4xl sm:text-5xl font-light text-[#2A2622] leading-tight mb-5"
             style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
             Bewegung,<br />klar und persönlich.
@@ -174,7 +174,7 @@ function Hero() {
             </div>
             <div className="relative z-10 bg-white/90 backdrop-blur rounded-xl px-4 py-2.5 flex items-center gap-2.5 shadow-sm">
               <span className="w-2 h-2 rounded-full bg-[#6B8E7F] animate-pulse" />
-              <span className="text-sm font-medium text-[#2A2622]">Birmensdorf ZH</span>
+              <span className="text-sm font-medium text-[#2A2622]">Baden AG</span>
             </div>
           </div>
         </div>
@@ -340,10 +340,10 @@ function Location() {
       <div className="max-w-5xl mx-auto px-4 grid md:grid-cols-2 gap-12 items-start">
         <div>
           <SectionLabel>Anfahrt</SectionLabel>
-          <Heading className="mb-6">Allmend — am ruhigen Ende<br />von Birmensdorf.</Heading>
+          <Heading className="mb-6">Physio Allmend –<br />mitten in Baden.</Heading>
           <address className="not-italic mb-6">
-            <div className="text-[#2A2622] font-medium">Allmendstrasse 12</div>
-            <div className="text-[#7A6E60]">8903 Birmensdorf ZH</div>
+            <div className="text-[#2A2622] font-medium">Allmendstrasse 10</div>
+            <div className="text-[#7A6E60]">5400 Baden</div>
           </address>
           <div className="space-y-2 mb-6">
             {[
@@ -360,7 +360,7 @@ function Location() {
             ))}
           </div>
           <p className="text-sm text-[#7A6E60]">
-            Bus 200 ab Bahnhof Urdorf, Haltestelle «Allmend» — 2 Minuten zu Fuss. Parkplätze direkt vor der Praxis.
+            Gut erreichbar mit öffentlichem Verkehr ab Bahnhof Baden. Parkplätze direkt vor der Praxis.
           </p>
         </div>
         <a href={MAPS_URL} target="_blank" rel="noopener noreferrer"
@@ -384,7 +384,7 @@ function Location() {
             </g>
             <g transform="translate(350 155)">
               <rect x="0" y="-13" width="150" height="26" rx="13" fill="white" stroke="#E1D6C2" />
-              <text x="75" y="5" textAnchor="middle" fontFamily="Inter, sans-serif" fontSize="11" fill="#2A2622" fontWeight="500">Allmendstrasse 12</text>
+              <text x="75" y="5" textAnchor="middle" fontFamily="Inter, sans-serif" fontSize="11" fill="#2A2622" fontWeight="500">Allmendstrasse 10</text>
             </g>
           </svg>
           <div className="px-4 py-3 bg-white border-t border-[#E1D6C2] text-sm text-[#6B8E7F] group-hover:text-[#4F7163] transition-colors">
@@ -559,7 +559,7 @@ function Footer() {
           <div>
             <p className="text-xs font-semibold tracking-widest uppercase text-white mb-3">Kontakt</p>
             <ul className="space-y-2 text-xs">
-              <li>Allmendstrasse 12, 8903 Birmensdorf ZH</li>
+              <li>Allmendstrasse 10, 5400 Baden</li>
               <li><a href="tel:+41441234567" className="hover:text-white transition-colors">+41 44 123 45 67</a></li>
               <li><a href="mailto:hallo@physio-allmend.ch" className="hover:text-white transition-colors">hallo@physio-allmend.ch</a></li>
               <li className="pt-1">

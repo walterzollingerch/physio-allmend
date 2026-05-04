@@ -3,7 +3,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Physio Allmend – Patientenportal',
-  description: 'Physiotherapie & Pilates – Birmensdorf ZH',
+  description: 'Physiotherapie & Pilates – Baden AG',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
