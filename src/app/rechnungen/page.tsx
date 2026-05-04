@@ -5,10 +5,10 @@ import { Wordmark } from '@/components/PhysioLogo'
 import { ArrowLeft, LogOut, Plus, FileText } from 'lucide-react'
 
 const STATUS_LABELS: Record<string, { label: string; cls: string }> = {
-  entwurf:   { label: 'Entwurf',   cls: 'bg-[#F4EDE2] text-[#7A6E60]' },
-  gesendet:  { label: 'Gesendet',  cls: 'bg-blue-100 text-blue-700' },
-  bezahlt:   { label: 'Bezahlt',   cls: 'bg-green-100 text-green-700' },
-  storniert: { label: 'Storniert', cls: 'bg-red-100 text-red-600' },
+  entwurf:    { label: 'Entwurf',    cls: 'bg-[#F4EDE2] text-[#7A6E60]' },
+  gesendet:   { label: 'Gesendet',   cls: 'bg-blue-100 text-blue-700' },
+  bezahlt:    { label: 'Bezahlt',    cls: 'bg-green-100 text-green-700' },
+  archiviert: { label: 'Archiviert', cls: 'bg-gray-100 text-gray-500' },
 }
 
 function fmt(n: number) {

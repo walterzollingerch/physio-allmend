@@ -217,7 +217,7 @@ export interface Database {
           footer: string | null
           discount_type: 'percent' | 'amount'
           discount_value: number
-          status: 'entwurf' | 'gesendet' | 'bezahlt' | 'storniert'
+          status: 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
           created_by: string | null
           created_at: string
           updated_at: string
@@ -237,7 +237,7 @@ export interface Database {
           footer?: string | null
           discount_type?: 'percent' | 'amount'
           discount_value?: number
-          status?: 'entwurf' | 'gesendet' | 'bezahlt' | 'storniert'
+          status?: 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -256,7 +256,7 @@ export interface Database {
           footer?: string | null
           discount_type?: 'percent' | 'amount'
           discount_value?: number
-          status?: 'entwurf' | 'gesendet' | 'bezahlt' | 'storniert'
+          status?: 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
           updated_at?: string
         }
         Relationships: []
@@ -271,6 +271,7 @@ export interface Database {
           unit_price: number
           quantity: number
           unit: string
+          account_id: string | null
         }
         Insert: {
           id?: string
@@ -281,6 +282,7 @@ export interface Database {
           unit_price?: number
           quantity?: number
           unit?: string
+          account_id?: string | null
         }
         Update: {
           position?: number
@@ -289,6 +291,7 @@ export interface Database {
           unit_price?: number
           quantity?: number
           unit?: string
+          account_id?: string | null
         }
         Relationships: []
       }
