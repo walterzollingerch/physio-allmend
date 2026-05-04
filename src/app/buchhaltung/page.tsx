@@ -13,10 +13,11 @@ export default async function BuchhaltungPage() {
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
   if (!profile || !['admin', 'physio'].includes(profile.role)) redirect('/dashboard')
 
-  const { data: accounts } = await supabase
-    .from('accounts')
-    .select('*')
-    .order('number')
+  const [{ data: accounts }, { data: groups }, { data: fiscalYears }] = await Promise.all([
+    supabase.from('accounts').select('*').order('number'),
+    supabase.from('account_groups').select('*').order('sort_order').order('name'),
+    supabase.from('fiscal_years').select('*').order('start_date', { ascending: false }),
+  ])
 
   return (
     <div className="min-h-screen bg-[#FBF7F1]">
@@ -48,7 +49,12 @@ export default async function BuchhaltungPage() {
           <p className="text-[#7A6E60] text-sm mt-1">Bilanz & Erfolgsrechnung · Physio Allmend</p>
         </div>
 
-        <BuchhaltungClient initialAccounts={accounts ?? []} isAdmin={profile.role === 'admin'} />
+        <BuchhaltungClient
+          initialAccounts={accounts ?? []}
+          initialGroups={groups ?? []}
+          initialFiscalYears={fiscalYears ?? []}
+          isAdmin={profile.role === 'admin'}
+        />
       </main>
     </div>
   )
