@@ -285,7 +285,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
               <CheckCircle size={15} /> Als bezahlt markieren
             </button>
           )}
-          {isAdmin && inv.status !== 'archiviert' && inv.status !== 'entwurf' && (
+          {(inv.status === 'gesendet' || inv.status === 'bezahlt') && (
             <button
               onClick={() => save('archiviert')}
               disabled={isPending}
