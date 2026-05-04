@@ -347,10 +347,10 @@ function Location() {
           </address>
           <div className="space-y-2 mb-6">
             {[
-              ['Mo – Do', '07:30 – 19:00'],
-              ['Freitag', '07:30 – 14:00'],
-              ['Samstag', 'nach Vereinbarung'],
-              ['Sonntag', 'geschlossen'],
+              ['Mo – Do', '08:15 – 14:30'],
+              ['Freitag', 'Geschlossen'],
+              ['Samstag', 'Geschlossen'],
+              ['Sonntag', 'Geschlossen'],
             ].map(([d, h]) => (
               <div key={d} className="flex items-center gap-3 text-sm">
                 <span className="w-20 text-[#7A6E60]">{d}</span>
