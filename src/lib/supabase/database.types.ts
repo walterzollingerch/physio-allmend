@@ -149,6 +149,9 @@ export interface Database {
           type: 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
           description: string | null
           sort_order: number
+          account_number: string | null
+          level: 'klasse' | 'gruppe' | null
+          parent_id: string | null
           created_at: string
         }
         Insert: {
@@ -157,6 +160,9 @@ export interface Database {
           type: 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
           description?: string | null
           sort_order?: number
+          account_number?: string | null
+          level?: 'klasse' | 'gruppe' | null
+          parent_id?: string | null
           created_at?: string
         }
         Update: {
@@ -164,6 +170,9 @@ export interface Database {
           type?: 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
           description?: string | null
           sort_order?: number
+          account_number?: string | null
+          level?: 'klasse' | 'gruppe' | null
+          parent_id?: string | null
         }
         Relationships: []
       }
