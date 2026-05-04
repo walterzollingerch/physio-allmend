@@ -203,7 +203,7 @@ function About() {
           <SectionLabel>Über mich</SectionLabel>
           <Heading className="mb-6">Eine Praxis,<br />eine Therapeutin.</Heading>
           <p className="text-[#4A4138] leading-relaxed mb-4">
-            Mein Name ist Anna Brunner. Seit über fünfzehn Jahren begleite ich Menschen zurück in ihre Bewegung — nach Verletzungen, Operationen, oder einfach nach zu vielen Stunden am Schreibtisch. Ich arbeite alleine, in einem ruhigen Raum, mit einer Person nach der anderen.
+            Mein Name ist Karin Zollinger. Ich begleite Menschen zurück in ihre Bewegung — nach Verletzungen, Operationen, oder einfach nach zu vielen Stunden am Schreibtisch. Ich arbeite in einem ruhigen Raum, mit einer Person nach der anderen.
           </p>
           <p className="text-[#4A4138] leading-relaxed mb-8">
             Pilates kam später dazu, als logische Fortsetzung der Therapie. Was in der Praxis beginnt, soll im Alltag tragen. Auf der Matte und am Reformer üben wir genau das.
@@ -438,9 +438,9 @@ function Contact() {
           <Heading className="mb-3">Danke — Ihre Nachricht ist angekommen.</Heading>
           <p className="text-[#7A6E60] mb-6">Ich melde mich innerhalb eines Werktags. Bei dringenden Anliegen erreichen Sie mich telefonisch.</p>
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
-            <a href="tel:+41441234567" className="text-[#4F7163] hover:underline">+41 44 123 45 67</a>
+            <a href="tel:+41565552314" className="text-[#4F7163] hover:underline">056 555 23 14</a>
             <span className="text-[#C7D6CD]">·</span>
-            <a href="mailto:hallo@physio-allmend.ch" className="text-[#4F7163] hover:underline">hallo@physio-allmend.ch</a>
+            <a href="mailto:zollinger.baden@gmail.com" className="text-[#4F7163] hover:underline">zollinger.baden@gmail.com</a>
           </div>
         </div>
       </section>
@@ -459,11 +459,11 @@ function Contact() {
           <div className="space-y-3">
             <div className="flex items-center gap-3 text-sm">
               <span className="w-8 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Tel</span>
-              <a href="tel:+41441234567" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">+41 44 123 45 67</a>
+              <a href="tel:+41565552314" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">056 555 23 14</a>
             </div>
             <div className="flex items-center gap-3 text-sm">
               <span className="w-8 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Mail</span>
-              <a href="mailto:hallo@physio-allmend.ch" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">hallo@physio-allmend.ch</a>
+              <a href="mailto:zollinger.baden@gmail.com" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">zollinger.baden@gmail.com</a>
             </div>
           </div>
           <div className="mt-8 pt-8 border-t border-[#E1D6C2]">
@@ -560,8 +560,8 @@ function Footer() {
             <p className="text-xs font-semibold tracking-widest uppercase text-white mb-3">Kontakt</p>
             <ul className="space-y-2 text-xs">
               <li>Allmendstrasse 10, 5400 Baden</li>
-              <li><a href="tel:+41441234567" className="hover:text-white transition-colors">+41 44 123 45 67</a></li>
-              <li><a href="mailto:hallo@physio-allmend.ch" className="hover:text-white transition-colors">hallo@physio-allmend.ch</a></li>
+              <li><a href="tel:+41565552314" className="hover:text-white transition-colors">056 555 23 14</a></li>
+              <li><a href="mailto:zollinger.baden@gmail.com" className="hover:text-white transition-colors">zollinger.baden@gmail.com</a></li>
               <li className="pt-1">
                 <Link href="/auth/login" className="hover:text-white transition-colors">→ Patientenportal</Link>
               </li>
@@ -569,7 +569,7 @@ function Footer() {
           </div>
         </div>
         <div className="flex flex-wrap justify-between gap-2 pt-6 text-xs">
-          <span>© 2026 Physio Allmend · Anna Brunner</span>
+          <span>© 2026 Physio Allmend · Karin Zollinger</span>
           <span>Made with care.</span>
         </div>
       </div>
