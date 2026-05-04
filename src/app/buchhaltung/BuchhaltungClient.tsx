@@ -97,6 +97,20 @@ function subtreeTotal(node: GroupNode): number {
   return own + node.children.reduce((s, c) => s + subtreeTotal(c), 0)
 }
 
+// Historical balance: start from current account.balance and reverse all entries after cutoff
+function getBalanceAt(account: Account, allEntries: JournalEntry[], cutoffDate: string): number {
+  let bal = Number(account.balance)
+  for (const e of allEntries) {
+    if (e.date <= cutoffDate) continue
+    const amt = Number(e.amount)
+    if (e.debit_account_id === account.id)
+      bal -= (account.type === 'aktiv' || account.type === 'aufwand') ? amt : -amt
+    if (e.credit_account_id === account.id)
+      bal -= (account.type === 'passiv' || account.type === 'ertrag') ? amt : -amt
+  }
+  return bal
+}
+
 function computePeriodBalances(accounts: Account[], entries: JournalEntry[]): Map<string, number> {
   const map = new Map<string, number>(accounts.map(a => [a.id, 0]))
   for (const e of entries) {
@@ -177,6 +191,18 @@ export default function BuchhaltungClient({
   const periodErgebnis = periodErtragAccounts.reduce((s, a) => s + a.balance, 0)
                        - periodAufwandAccounts.reduce((s, a) => s + a.balance, 0)
 
+  // Bilanz: historische Salden für abgeschlossene Jahre rekonstruieren
+  const selectedFiscalYear = fiscalYears.find(y => y.id === selectedFiscalYearId)
+  const isHistoricalYear   = selectedFiscalYear?.is_closed === true
+  const bilanzAktiv  = isHistoricalYear && selectedFiscalYear
+    ? aktiv.map(a => ({ ...a, balance: getBalanceAt(a, journalEntries, selectedFiscalYear.end_date) }))
+    : aktiv
+  const bilanzPassiv = isHistoricalYear && selectedFiscalYear
+    ? passiv.map(a => ({ ...a, balance: getBalanceAt(a, journalEntries, selectedFiscalYear.end_date) }))
+    : passiv
+  const bilanzTotalAktiv  = bilanzAktiv.reduce((s, a) => s + Number(a.balance), 0)
+  const bilanzTotalPassiv = bilanzPassiv.reduce((s, a) => s + Number(a.balance), 0)
+
   return (
     <div>
       <div className="flex flex-wrap gap-1 mb-6 bg-white rounded-xl border border-[#E1D6C2] p-1 w-fit">
@@ -189,9 +215,10 @@ export default function BuchhaltungClient({
 
       {tab === 'bilanz' && (
         <BilanzTab
-          aktiv={aktiv} passiv={passiv}
-          totalAktiv={totalAktiv} totalPassiv={totalPassiv}
-          ergebnis={periodErgebnis}
+          aktiv={bilanzAktiv} passiv={bilanzPassiv}
+          totalAktiv={bilanzTotalAktiv} totalPassiv={bilanzTotalPassiv}
+          ergebnis={isHistoricalYear ? 0 : periodErgebnis}
+          isHistoricalYear={isHistoricalYear}
           fiscalYears={fiscalYears}
           selectedFiscalYearId={selectedFiscalYearId}
           onFiscalYearChange={setSelectedFiscalYearId}
@@ -249,23 +276,26 @@ export default function BuchhaltungClient({
 }
 
 // ── Bilanz Tab ───────────────────────────────────────────────
-function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, fiscalYears, selectedFiscalYearId, onFiscalYearChange, groups, isAdmin, onAccountsChange, supabase }: {
+function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, isHistoricalYear, fiscalYears, selectedFiscalYearId, onFiscalYearChange, groups, isAdmin, onAccountsChange, supabase }: {
   aktiv: Account[]; passiv: Account[]
   totalAktiv: number; totalPassiv: number; ergebnis: number
+  isHistoricalYear: boolean
   fiscalYears: FiscalYear[]; selectedFiscalYearId: string
   onFiscalYearChange: (id: string) => void
   groups: AccountGroup[]; isAdmin: boolean
   onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>; supabase: ReturnType<typeof createClient>
 }) {
-  // Bilanzsumme Passiva inkl. laufendem Jahresergebnis
   const totalPassivMitErgebnis = totalPassiv + ergebnis
   const ausgeglichen = Math.abs(totalAktiv - totalPassivMitErgebnis) < 0.01
+  const selectedYear = fiscalYears.find(y => y.id === selectedFiscalYearId)
 
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
         <FiscalYearPicker fiscalYears={fiscalYears} value={selectedFiscalYearId} onChange={onFiscalYearChange} />
-        <p className="text-xs text-[#7A6E60]">Aktiv/Passiv: kumulierte Salden aller Buchungen</p>
+        {isHistoricalYear && selectedYear && (
+          <p className="text-xs text-[#7A6E60]">Stand per {new Date(selectedYear.end_date).toLocaleDateString('de-CH')}</p>
+        )}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AccountSide
@@ -273,6 +303,7 @@ function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, fiscalYea
           groups={groups} isAdmin={isAdmin} allGroups={groups}
           onAccountsChange={onAccountsChange} supabase={supabase}
           icon={<TrendingUp size={18} className="text-blue-600" />}
+          readOnly={isHistoricalYear}
         />
         <AccountSide
           title="Passivkonten" type="passiv" accounts={passiv} total={totalPassiv}
@@ -280,6 +311,7 @@ function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, fiscalYea
           onAccountsChange={onAccountsChange} supabase={supabase}
           icon={<TrendingDown size={18} className="text-purple-600" />}
           jahresergebnis={ergebnis}
+          readOnly={isHistoricalYear}
         />
         <div className="lg:col-span-2 bg-white rounded-2xl border border-[#E1D6C2] p-4">
           <div className="flex justify-between items-center">
