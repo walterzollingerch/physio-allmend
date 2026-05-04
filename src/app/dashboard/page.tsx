@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Wordmark } from '@/components/PhysioLogo'
-import { Users, LogOut, CalendarDays, ClipboardList, Clock, Calendar, BookOpen, Receipt } from 'lucide-react'
+import { Users, LogOut, CalendarDays, ClipboardList, Clock, Calendar, BookOpen, Receipt, UserRound } from 'lucide-react'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -97,6 +97,16 @@ export default async function DashboardPage() {
               description="Patientenliste & Behandlungspläne"
               href="#"
               badge="In Kürze"
+            />
+          )}
+
+          {/* Kunden (Physio & Admin) */}
+          {(isPhysio || isAdmin) && (
+            <DashboardCard
+              icon={<UserRound size={22} className="text-[#6B8E7F]" />}
+              title="Kunden"
+              description="Kundenstamm verwalten & durchsuchen"
+              href="/kunden"
             />
           )}
 
