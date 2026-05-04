@@ -5,7 +5,8 @@ import { ArrowLeft, LogOut } from 'lucide-react'
 import Link from 'next/link'
 import KundeEditor from './KundeEditor'
 
-export default async function KundePage({ params }: { params: { id: string } }) {
+export default async function KundePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
@@ -16,7 +17,7 @@ export default async function KundePage({ params }: { params: { id: string } }) 
   const { data: customer } = await supabase
     .from('customers')
     .select('*')
-    .eq('id', params.id)
+    .eq('id', id)
     .single()
 
   if (!customer) redirect('/kunden')

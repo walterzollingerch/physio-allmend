@@ -5,7 +5,8 @@ import { ArrowLeft, LogOut } from 'lucide-react'
 import Link from 'next/link'
 import RechnungEditor from './RechnungEditor'
 
-export default async function RechnungPage({ params }: { params: { id: string } }) {
+export default async function RechnungPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
@@ -16,7 +17,7 @@ export default async function RechnungPage({ params }: { params: { id: string } 
   const { data: invoice } = await supabase
     .from('invoices')
     .select('*')
-    .eq('id', params.id)
+    .eq('id', id)
     .single()
 
   if (!invoice) redirect('/rechnungen')
@@ -24,7 +25,7 @@ export default async function RechnungPage({ params }: { params: { id: string } 
   const { data: items } = await supabase
     .from('invoice_items')
     .select('*')
-    .eq('invoice_id', params.id)
+    .eq('invoice_id', id)
     .order('position')
 
   return (
