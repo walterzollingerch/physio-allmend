@@ -37,7 +37,7 @@ function LoginForm() {
     if (error) {
       setError('E-Mail oder Passwort ist falsch.')
     } else {
-      router.push('/')
+      router.push('/dashboard')
       router.refresh()
     }
     setLoading(false)

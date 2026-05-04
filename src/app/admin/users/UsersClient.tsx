@@ -74,7 +74,7 @@ export default function UsersClient({
       <header className="bg-white border-b border-[#E1D6C2] px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-center gap-4">
           <Link
-            href="/"
+            href="/dashboard"
             className="flex items-center gap-1 text-sm text-[#4F7163] hover:underline"
           >
             <ChevronLeft size={16} />

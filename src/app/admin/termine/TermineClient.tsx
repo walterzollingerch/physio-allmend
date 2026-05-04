@@ -52,7 +52,7 @@ export default function TermineClient({ bookings: initial }: { bookings: Booking
     <div className="min-h-screen bg-[#FBF7F1]">
       <header className="bg-white border-b border-[#E1D6C2] px-4 py-4">
         <div className="max-w-4xl mx-auto flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-1 text-sm text-[#4F7163] hover:underline">
+          <Link href="/dashboard" className="flex items-center gap-1 text-sm text-[#4F7163] hover:underline">
             <ChevronLeft size={16} /> Dashboard
           </Link>
           <div className="flex items-center gap-2 ml-auto">

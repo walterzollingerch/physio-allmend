@@ -2,6 +2,8 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { Database } from './database.types'
 
+const PUBLIC_PATHS = ['/', '/auth']
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -27,18 +29,19 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const url = request.nextUrl.clone()
-  const isAuthPage = url.pathname.startsWith('/auth')
-  const isAdminPage = url.pathname.startsWith('/admin')
+  const isAuthPage    = url.pathname.startsWith('/auth')
+  const isPublicPage  = url.pathname === '/' || isAuthPage
+  const isAdminPage   = url.pathname.startsWith('/admin')
 
-  // Nicht eingeloggt → Login
-  if (!user && !isAuthPage) {
+  // Nicht eingeloggt auf geschützter Seite → Login
+  if (!user && !isPublicPage) {
     url.pathname = '/auth/login'
     return NextResponse.redirect(url)
   }
 
-  // Eingeloggt auf Auth-Seite → Dashboard (ausser reset-password)
+  // Eingeloggt auf Auth-Seite → Dashboard
   if (user && isAuthPage && !url.pathname.startsWith('/auth/reset-password')) {
-    url.pathname = '/'
+    url.pathname = '/dashboard'
     return NextResponse.redirect(url)
   }
 
@@ -49,7 +52,7 @@ export async function updateSession(request: NextRequest) {
       .eq('id', user.id)
       .single()
 
-    // Gesperrter User → abmelden & Login mit Hinweis
+    // Gesperrter User → abmelden
     if (profile?.is_blocked && !isAuthPage) {
       await supabase.auth.signOut()
       url.pathname = '/auth/login'
@@ -57,9 +60,9 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Admin-Seite: nur für Admins
-    if (isAdminPage && profile?.role !== 'admin') {
-      url.pathname = '/'
+    // Admin-Seite: nur für Admin & Physio
+    if (isAdminPage && !['admin', 'physio'].includes(profile?.role ?? '')) {
+      url.pathname = '/dashboard'
       return NextResponse.redirect(url)
     }
   }

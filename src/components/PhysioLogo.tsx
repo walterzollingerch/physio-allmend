@@ -1,7 +1,7 @@
-export default function PhysioLogo({ size = 64 }: { size?: number }) {
+export default function PhysioLogo({ size = 64, inverted = false }: { size?: number; inverted?: boolean }) {
   return (
     <div
-      className="inline-flex items-center justify-center rounded-full bg-[#6B8E7F] text-white"
+      className={`inline-flex items-center justify-center rounded-full ${inverted ? 'bg-white/10 text-white' : 'bg-[#6B8E7F] text-white'}`}
       style={{ width: size, height: size }}
     >
       <svg
