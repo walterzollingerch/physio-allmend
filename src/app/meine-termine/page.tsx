@@ -14,14 +14,24 @@ export default async function MeineTerminePage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
 
-  const { data: bookings } = await supabase
+  type BookingRow = {
+    id: string
+    requested_date: string
+    requested_time: string
+    status: 'pending' | 'confirmed' | 'cancelled'
+    notes: string | null
+    treatment_types: { name: string; duration_min: number }
+  }
+
+  const { data: rawBookings } = await supabase
     .from('bookings')
     .select(`*, treatment_types ( name, duration_min )`)
     .eq('patient_id', user.id)
     .order('requested_date', { ascending: false })
 
-  const upcoming = bookings?.filter(b => b.status !== 'cancelled' && new Date(b.requested_date) >= new Date()) ?? []
-  const past = bookings?.filter(b => b.status === 'cancelled' || new Date(b.requested_date) < new Date()) ?? []
+  const bookings = (rawBookings ?? []) as BookingRow[]
+  const upcoming = bookings.filter(b => b.status !== 'cancelled' && new Date(b.requested_date) >= new Date())
+  const past = bookings.filter(b => b.status === 'cancelled' || new Date(b.requested_date) < new Date())
 
   return (
     <div className="min-h-screen bg-[#FBF7F1]">
@@ -84,16 +94,14 @@ export default async function MeineTerminePage() {
   )
 }
 
-function BookingCard({ booking }: { booking: Record<string, unknown> }) {
-  const status = booking.status as keyof typeof STATUS_CONFIG
-  const cfg = STATUS_CONFIG[status]
+function BookingCard({ booking }: { booking: { id: string; requested_date: string; requested_time: string; status: 'pending' | 'confirmed' | 'cancelled'; notes: string | null; treatment_types: { name: string; duration_min: number } } }) {
+  const cfg = STATUS_CONFIG[booking.status]
   const Icon = cfg.icon
-  const treatment = booking.treatment_types as { name: string; duration_min: number }
 
-  const dateStr = new Date((booking.requested_date as string) + 'T12:00').toLocaleDateString('de-CH', {
+  const dateStr = new Date(booking.requested_date + 'T12:00').toLocaleDateString('de-CH', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
   })
-  const timeStr = (booking.requested_time as string).slice(0, 5)
+  const timeStr = booking.requested_time.slice(0, 5)
 
   return (
     <div className="bg-white rounded-xl border border-[#E1D6C2] p-4 flex items-start gap-4">
@@ -102,14 +110,14 @@ function BookingCard({ booking }: { booking: Record<string, unknown> }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <p className="font-medium text-sm text-[#2A2622]">{treatment?.name}</p>
+          <p className="font-medium text-sm text-[#2A2622]">{booking.treatment_types?.name}</p>
           <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${cfg.color}`}>
             <Icon size={11} /> {cfg.label}
           </span>
         </div>
-        <p className="text-xs text-[#7A6E60]">{dateStr} · {timeStr} Uhr · {treatment?.duration_min} Min.</p>
+        <p className="text-xs text-[#7A6E60]">{dateStr} · {timeStr} Uhr · {booking.treatment_types?.duration_min} Min.</p>
         {booking.notes && (
-          <p className="text-xs text-[#7A6E60] mt-1 italic">&ldquo;{booking.notes as string}&rdquo;</p>
+          <p className="text-xs text-[#7A6E60] mt-1 italic">&ldquo;{booking.notes}&rdquo;</p>
         )}
       </div>
     </div>

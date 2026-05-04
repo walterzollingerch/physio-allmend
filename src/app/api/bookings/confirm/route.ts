@@ -22,6 +22,17 @@ export async function POST(request: NextRequest) {
   const { booking_id, action } = body // action: 'confirm' | 'cancel'
 
   // Buchung mit Patient & Behandlungstyp laden
+  type BookingWithRelations = {
+    id: string
+    requested_date: string
+    requested_time: string
+    notes: string | null
+    google_event_id: string | null
+    status: string
+    treatment_types: { name: string; duration_min: number }
+    profiles: { full_name: string; email: string }
+  }
+
   const { data: booking, error: bookingError } = await supabase
     .from('bookings')
     .select(`
@@ -30,7 +41,7 @@ export async function POST(request: NextRequest) {
       profiles!bookings_patient_id_fkey ( full_name, email )
     `)
     .eq('id', booking_id)
-    .single()
+    .single() as { data: BookingWithRelations | null; error: unknown }
 
   if (bookingError || !booking) {
     return NextResponse.json({ error: 'Buchung nicht gefunden' }, { status: 404 })
@@ -42,8 +53,8 @@ export async function POST(request: NextRequest) {
     // Google Calendar Event erstellen
     if (process.env.GOOGLE_REFRESH_TOKEN) {
       try {
-        const patient = booking.profiles as { full_name: string; email: string }
-        const treatment = booking.treatment_types as { name: string; duration_min: number }
+        const patient = booking.profiles
+        const treatment = booking.treatment_types
 
         googleEventId = await createCalendarEvent({
           title: treatment.name,

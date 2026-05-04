@@ -10,7 +10,18 @@ export default async function AdminTerminePage() {
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (!profile || !['admin', 'physio'].includes(profile.role)) redirect('/')
 
-  const { data: bookings } = await supabase
+  type BookingWithRelations = {
+    id: string
+    requested_date: string
+    requested_time: string
+    status: 'pending' | 'confirmed' | 'cancelled'
+    notes: string | null
+    google_event_id: string | null
+    treatment_types: { name: string; duration_min: number }
+    profiles: { full_name: string; email: string; phone: string | null }
+  }
+
+  const { data: rawBookings } = await supabase
     .from('bookings')
     .select(`
       *,
@@ -20,5 +31,7 @@ export default async function AdminTerminePage() {
     .order('requested_date', { ascending: true })
     .order('requested_time', { ascending: true })
 
-  return <TermineClient bookings={bookings ?? []} />
+  const bookings = (rawBookings ?? []) as BookingWithRelations[]
+
+  return <TermineClient bookings={bookings} />
 }

@@ -37,7 +37,6 @@ export interface Database {
         }
         Relationships: []
       }
-    }
       treatment_types: {
         Row: {
           id: string
