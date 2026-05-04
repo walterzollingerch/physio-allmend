@@ -28,14 +28,20 @@ export default async function RechnungenPage() {
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
   if (!profile || !['admin', 'physio'].includes(profile.role)) redirect('/dashboard')
 
+  type InvoiceWithItems = {
+    id: string; number: string; customer_name: string; invoice_date: string
+    due_date: string | null; status: string; discount_type: string; discount_value: number
+    invoice_items: { unit_price: number; quantity: number }[]
+  }
+
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('*, invoice_items(unit_price, quantity)')
-    .order('created_at', { ascending: false })
+    .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, invoice_items(unit_price, quantity)')
+    .order('created_at', { ascending: false }) as { data: InvoiceWithItems[] | null; error: unknown }
 
   const withTotals = (invoices ?? []).map(inv => {
     const subtotal = (inv.invoice_items ?? []).reduce(
-      (s: number, i: any) => s + Number(i.unit_price) * Number(i.quantity), 0
+      (s: number, i: { unit_price: number; quantity: number }) => s + Number(i.unit_price) * Number(i.quantity), 0
     )
     const discount = inv.discount_type === 'percent'
       ? subtotal * Number(inv.discount_value) / 100
