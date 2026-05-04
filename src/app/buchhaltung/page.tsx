@@ -17,7 +17,7 @@ export default async function BuchhaltungPage() {
     supabase.from('accounts').select('*').order('number'),
     supabase.from('account_groups').select('*').order('sort_order').order('name'),
     supabase.from('fiscal_years').select('*').order('start_date', { ascending: false }),
-    supabase.from('journal_entries').select('*, debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)').order('date', { ascending: false }).order('created_at', { ascending: false }).limit(200),
+    supabase.from('journal_entries').select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)').order('date', { ascending: false }).order('created_at', { ascending: false }).limit(500),
   ])
 
   return (
