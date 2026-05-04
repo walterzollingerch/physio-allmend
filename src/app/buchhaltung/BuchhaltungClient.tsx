@@ -443,7 +443,6 @@ function AccountSide({ title, type, accounts, total, groups, isAdmin, allGroups,
           <div className="px-5 py-1.5 bg-[#F4EDE2] border-b border-[#E1D6C2]">
             <div className="flex items-center justify-between pl-4">
               <span className="text-xs font-semibold text-[#4A4138] uppercase tracking-wide">
-                <span className="font-mono mr-2 opacity-60">2970</span>
                 Jahresergebnis (laufend)
               </span>
               <span className={`font-mono text-xs font-semibold ${jahresergebnis >= 0 ? 'text-green-700' : 'text-red-600'}`}>
@@ -936,7 +935,7 @@ function JahresabschlussModal({ year, ertragAccounts, aufwandAccounts, ergebnis,
   ergebnis: number
   allAccounts: Account[]
   onClose: () => void
-  onDone: (closedYear: FiscalYear, newEntries: JournalEntry[], updatedAccounts: Account[]) => void
+  onDone: (closedYear: FiscalYear, newEntries: JournalEntry[], updatedAccounts: Account[], newFiscalYear: FiscalYear | null) => void
   supabase: ReturnType<typeof createClient>
 }) {
   const guVOptions = allAccounts.filter(a => a.number.startsWith('297') && !a.number.startsWith('2979'))
@@ -950,37 +949,63 @@ function JahresabschlussModal({ year, ertragAccounts, aufwandAccounts, ergebnis,
   const totalErtrag  = ertragAccounts.reduce((s, a) => s + a.balance, 0)
   const totalAufwand = aufwandAccounts.reduce((s, a) => s + a.balance, 0)
   const isGewinn     = ergebnis >= 0
+  const absErgebnis  = Math.abs(ergebnis)
+
+  // Compute next year dates for preview
+  const nextStart = new Date(year.end_date); nextStart.setDate(nextStart.getDate() + 1)
+  const nextEnd   = new Date(nextStart);     nextEnd.setFullYear(nextEnd.getFullYear() + 1); nextEnd.setDate(nextEnd.getDate() - 1)
+  const nextStartStr = nextStart.toISOString().split('T')[0]
+  const nextEndStr   = nextEnd.toISOString().split('T')[0]
+  const nextYearNum  = nextStart.getFullYear()
 
   async function handleExecute() {
     if (!guvId || !ekId) { setError('Bitte GuV- und Eigenkapitalkonto auswählen.'); return }
     setError(null)
     start(async () => {
-      const today = new Date().toISOString().split('T')[0]
-      const entries: { date: string; description: string; debit_account_id: string; credit_account_id: string; amount: number }[] = []
+      type EntryInsert = { date: string; description: string; debit_account_id: string; credit_account_id: string; amount: number; fiscal_year_id: string }
 
-      // Aufwand → GuV (Soll: GuV, Haben: Aufwand)
+      // ── Abschlussbuchungen (Ertrag/Aufwand → GuV) → aktuelles Jahr ──
+      const closingEntries: EntryInsert[] = []
       for (const a of aufwandAccounts) {
         if (a.balance === 0) continue
-        entries.push({ date: today, description: `Jahresabschluss ${year.name}: ${a.name}`, debit_account_id: guvId, credit_account_id: a.id, amount: a.balance })
+        closingEntries.push({ date: year.end_date, description: `Jahresabschluss ${year.name}: ${a.name}`, debit_account_id: guvId, credit_account_id: a.id, amount: a.balance, fiscal_year_id: year.id })
       }
-      // Ertrag → GuV (Soll: Ertrag, Haben: GuV)
       for (const a of ertragAccounts) {
         if (a.balance === 0) continue
-        entries.push({ date: today, description: `Jahresabschluss ${year.name}: ${a.name}`, debit_account_id: a.id, credit_account_id: guvId, amount: a.balance })
+        closingEntries.push({ date: year.end_date, description: `Jahresabschluss ${year.name}: ${a.name}`, debit_account_id: a.id, credit_account_id: guvId, amount: a.balance, fiscal_year_id: year.id })
       }
-      // Net result: Gewinn → Soll GuV / Haben EK; Verlust → Soll EK / Haben GuV
-      const absErgebnis = Math.abs(ergebnis)
+
+      // ── Neues Geschäftsjahr finden oder erstellen ──
+      const { data: existingNext } = await supabase.from('fiscal_years').select('*').eq('start_date', nextStartStr).maybeSingle()
+      let nextYear: FiscalYear
+      let createdNewYear = false
+      if (existingNext) {
+        nextYear = existingNext as FiscalYear
+      } else {
+        const { data: newYear, error: nyErr } = await supabase
+          .from('fiscal_years').insert({ name: String(nextYearNum), start_date: nextStartStr, end_date: nextEndStr, is_closed: false }).select().single()
+        if (nyErr) { setError(nyErr.message); return }
+        nextYear = newYear as FiscalYear
+        createdNewYear = true
+      }
+
+      // ── Gewinnvortrag → neues Geschäftsjahr ──
+      const vortragEntries: EntryInsert[] = []
       if (absErgebnis > 0) {
-        entries.push({
-          date: today,
-          description: `Jahresabschluss ${year.name}: ${isGewinn ? 'Gewinnübertrag' : 'Verlustübertrag'}`,
+        vortragEntries.push({
+          date: nextStartStr,
+          description: `${isGewinn ? 'Gewinnvortrag' : 'Verlustvortrag'} ${year.name} → ${nextYear.name}`,
           debit_account_id:  isGewinn ? guvId : ekId,
           credit_account_id: isGewinn ? ekId  : guvId,
           amount: absErgebnis,
+          fiscal_year_id: nextYear.id,
         })
       }
 
-      const { data: created, error: err } = await supabase.from('journal_entries').insert(entries).select()
+      const { data: created, error: err } = await supabase
+        .from('journal_entries')
+        .insert([...closingEntries, ...vortragEntries])
+        .select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
       if (err) { setError(err.message); return }
 
       // Zero out all Erfolgskonten and update GuV/EK balances
@@ -1012,7 +1037,7 @@ function JahresabschlussModal({ year, ertragAccounts, aufwandAccounts, ergebnis,
 
       // Mark fiscal year closed
       const { data: closedYear } = await supabase.from('fiscal_years').update({ is_closed: true }).eq('id', year.id).select().single()
-      onDone(closedYear as FiscalYear, (created ?? []) as JournalEntry[], updatedAccounts)
+      onDone(closedYear as FiscalYear, (created ?? []) as JournalEntry[], updatedAccounts, createdNewYear ? nextYear : null)
     })
   }
 
@@ -1039,9 +1064,14 @@ function JahresabschlussModal({ year, ertragAccounts, aufwandAccounts, ergebnis,
           </select>
         </Field>
 
+        <div className="bg-[#F7F2EC] border border-[#E1D6C2] rounded-xl p-3 text-xs text-[#4A4138] space-y-1">
+          <p>• Abschlussbuchungen (Ertrag/Aufwand → GuV) werden dem Jahr <strong>{year.name}</strong> zugewiesen.</p>
+          <p>• {isGewinn ? 'Gewinnvortrag' : 'Verlustvortrag'} wird dem Folgejahr <strong>{nextYearNum}</strong> zugewiesen ({nextStartStr} – {nextEndStr}).</p>
+          <p>• Falls Geschäftsjahr {nextYearNum} noch nicht existiert, wird es automatisch eröffnet.</p>
+        </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex gap-2">
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-          <span>Alle Erfolgskonten werden auf 0 gesetzt. Das Jahresergebnis wird ins Eigenkapital übertragen. Das Geschäftsjahr wird als abgeschlossen markiert.</span>
+          <span>Alle Erfolgskonten werden auf 0 gesetzt. Das Geschäftsjahr {year.name} wird als abgeschlossen markiert.</span>
         </div>
 
         {error && <p className="text-red-600 text-xs">{error}</p>}
@@ -1111,9 +1141,12 @@ function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, accounts, ertragA
     })
   }
 
-  function handleAbschlussDone(closedYear: FiscalYear, newEntries: JournalEntry[], updatedAccounts: Account[]) {
-    onFiscalYearsChange(prev => prev.map(y => y.id === closedYear.id ? closedYear : y))
-    onJournalEntriesChange(prev => [...prev, ...newEntries])
+  function handleAbschlussDone(closedYear: FiscalYear, newEntries: JournalEntry[], updatedAccounts: Account[], newFiscalYear: FiscalYear | null) {
+    onFiscalYearsChange(prev => {
+      const updated = prev.map(y => y.id === closedYear.id ? closedYear : y)
+      return newFiscalYear ? [newFiscalYear, ...updated] : updated
+    })
+    onJournalEntriesChange(prev => [...newEntries, ...prev])
     onAccountsChange(prev => prev.map(a => {
       const updated = updatedAccounts.find(u => u.id === a.id)
       return updated ? { ...a, balance: updated.balance } : a
