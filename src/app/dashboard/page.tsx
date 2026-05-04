@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import PhysioLogo from '@/components/PhysioLogo'
+import { Wordmark } from '@/components/PhysioLogo'
 import { Users, LogOut, CalendarDays, ClipboardList, Clock, Calendar } from 'lucide-react'
 
 export default async function DashboardPage() {
@@ -30,15 +30,7 @@ export default async function DashboardPage() {
     <div className="min-h-screen bg-[#FBF7F1]">
       <header className="bg-white border-b border-[#E1D6C2] px-4 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <PhysioLogo size={36} />
-            <div>
-              <p className="font-medium text-[#2A2622] leading-tight" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
-                Physio Allmend
-              </p>
-              <p className="text-xs text-[#7A6E60]">Patientenportal</p>
-            </div>
-          </div>
+          <Wordmark size={36} />
           <div className="flex items-center gap-3">
             <span className="text-sm text-[#4A4138] hidden sm:block">{profile.full_name}</span>
             <form action="/auth/signout" method="post">

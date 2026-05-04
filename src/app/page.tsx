@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import PhysioLogo from '@/components/PhysioLogo'
+import PhysioLogo, { Wordmark } from '@/components/PhysioLogo'
 
 // ─── Data ──────────────────────────────────────────────────────────────────
 
@@ -78,12 +78,7 @@ function Nav() {
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-[#E1D6C2]">
       <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-4">
-        <div className="flex items-center gap-2.5">
-          <PhysioLogo size={32} />
-          <span className="font-medium text-[#2A2622] text-sm hidden sm:block" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
-            Physio Allmend
-          </span>
-        </div>
+        <Wordmark size={36} />
         <nav className="hidden md:flex items-center gap-5 ml-4 flex-1">
           {links.map(([href, label]) => (
             <a key={href} href={href} className="text-sm text-[#4A4138] hover:text-[#6B8E7F] transition-colors">{label}</a>
@@ -541,9 +536,8 @@ function Footer() {
       <div className="max-w-5xl mx-auto px-4">
         <div className="grid sm:grid-cols-3 gap-8 pb-8 border-b border-white/10">
           <div>
-            <div className="flex items-center gap-2.5 mb-3">
-              <PhysioLogo size={28} inverted />
-              <span className="font-medium text-white text-sm" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>Physio Allmend</span>
+            <div className="mb-3">
+              <Wordmark size={32} inverted />
             </div>
             <p className="text-xs leading-relaxed">Eine kleine Praxis. Mit Zeit für eine Person.</p>
           </div>

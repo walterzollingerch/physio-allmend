@@ -1,28 +1,45 @@
 export default function PhysioLogo({ size = 64, inverted = false }: { size?: number; inverted?: boolean }) {
+  const bg = inverted ? '#ffffff22' : '#6B8E7F'
   return (
-    <div
-      className={`inline-flex items-center justify-center rounded-full ${inverted ? 'bg-white/10 text-white' : 'bg-[#6B8E7F] text-white'}`}
-      style={{ width: size, height: size }}
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
     >
-      <svg
-        width={size * 0.45}
-        height={size * 0.45}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
+      {/* Green circle */}
+      <circle cx="32" cy="32" r="32" fill={bg} />
+      {/* Wave 1 */}
+      <path
+        d="M10 28 C16 18, 22 18, 32 28 C42 38, 48 38, 54 28"
+        stroke="white"
+        strokeWidth="3.5"
         strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        {/* Person silhouette */}
-        <circle cx="12" cy="5" r="2.5" />
-        <path d="M7 12c0-2.8 2.2-5 5-5s5 2.2 5 5" />
-        {/* Hands / physiotherapy */}
-        <path d="M5 14c1-1 2.5-1.5 4-1h6c1.5-.5 3 0 4 1" />
-        <path d="M9 13v5m6-5v5" />
-        <path d="M7 22h10" />
-      </svg>
+        fill="none"
+      />
+      {/* Wave 2 */}
+      <path
+        d="M10 38 C16 28, 22 28, 32 38 C42 48, 48 48, 54 38"
+        stroke="white"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
+  )
+}
+
+export function Wordmark({ size = 36, inverted = false }: { size?: number; inverted?: boolean }) {
+  const textColor = inverted ? 'text-white' : 'text-[#2A2622]'
+  return (
+    <div className="inline-flex items-center gap-2.5">
+      <PhysioLogo size={size} inverted={inverted} />
+      <div className={`leading-tight ${textColor}`} style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
+        <div className="font-medium" style={{ fontSize: size * 0.36 }}>Physio</div>
+        <div className="font-light tracking-wide" style={{ fontSize: size * 0.36 }}>Allmend</div>
+      </div>
     </div>
   )
 }
