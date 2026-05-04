@@ -202,6 +202,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           debit_account_id: forderungsKontoId,
           credit_account_id: item.account_id as string,
           amount,
+          invoice_id: inv.id,
         })
 
         // Forderungskonto (aktiv) im Soll → balance +
@@ -220,6 +221,46 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
 
       setInv(prev => ({ ...prev, status: 'gesendet' }))
       setShowSendModal(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    })
+  }
+
+  async function handleArchive() {
+    setError(null)
+    start(async () => {
+      // Fetch related journal entries with fresh account balances
+      const { data: entries } = await supabase
+        .from('journal_entries')
+        .select('id, amount, debit_account_id, credit_account_id')
+        .eq('invoice_id', inv.id)
+
+      if (entries && entries.length > 0) {
+        // Accumulate balance reversals
+        const deltas = new Map<string, number>()
+        for (const entry of entries) {
+          const amt = Number(entry.amount)
+          deltas.set(entry.debit_account_id,  (deltas.get(entry.debit_account_id)  ?? 0) - amt)
+          deltas.set(entry.credit_account_id, (deltas.get(entry.credit_account_id) ?? 0) - amt)
+        }
+
+        // Fetch current balances and reverse them
+        for (const [accountId, delta] of deltas.entries()) {
+          const { data: acc } = await supabase.from('accounts').select('balance').eq('id', accountId).single()
+          if (acc) {
+            await supabase.from('accounts').update({ balance: Number(acc.balance) + delta }).eq('id', accountId)
+          }
+        }
+
+        // Delete the journal entries
+        await supabase.from('journal_entries').delete().eq('invoice_id', inv.id)
+      }
+
+      // Set invoice to archiviert
+      const { error: invErr } = await supabase.from('invoices').update({ status: 'archiviert' }).eq('id', inv.id)
+      if (invErr) { setError(invErr.message); return }
+
+      setInv(prev => ({ ...prev, status: 'archiviert' }))
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     })
@@ -287,7 +328,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           )}
           {(inv.status === 'gesendet' || inv.status === 'bezahlt') && (
             <button
-              onClick={() => save('archiviert')}
+              onClick={handleArchive}
               disabled={isPending}
               className="flex items-center gap-2 border border-[#E1D6C2] text-[#7A6E60] hover:bg-[#F7F2EC] text-sm px-3 py-2 rounded-lg transition-colors"
             >

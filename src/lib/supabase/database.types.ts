@@ -303,6 +303,7 @@ export interface Database {
           debit_account_id: string
           credit_account_id: string
           amount: number
+          invoice_id: string | null
           created_by: string | null
           created_at: string
         }
@@ -313,6 +314,7 @@ export interface Database {
           debit_account_id: string
           credit_account_id: string
           amount: number
+          invoice_id?: string | null
           created_by?: string | null
           created_at?: string
         }
@@ -322,6 +324,7 @@ export interface Database {
           debit_account_id?: string
           credit_account_id?: string
           amount?: number
+          invoice_id?: string | null
         }
         Relationships: []
       }
