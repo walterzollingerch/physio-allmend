@@ -1016,29 +1016,34 @@ function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts
       }
 
       // ── Eröffnungsbuchungen: Aktiv → Soll Aktiv / Haben 2970 ──
+      // Bei negativem Saldo wird Soll/Haben umgekehrt (amount muss > 0 sein)
       const openingEntries: EntryInsert[] = []
       for (const a of aktivAccounts) {
-        if (Number(a.balance) === 0) continue
+        const bal = Number(a.balance)
+        if (Math.abs(bal) < 0.005) continue
+        const amt = Math.abs(bal)
         openingEntries.push({
           date: nextStartStr,
           description: `Eröffnung ${nextYear.name}: ${a.name}`,
-          debit_account_id: a.id,
-          credit_account_id: guvId,
-          amount: Number(a.balance),
+          debit_account_id:  bal >= 0 ? a.id  : guvId,
+          credit_account_id: bal >= 0 ? guvId : a.id,
+          amount: amt,
           fiscal_year_id: nextYear.id,
         })
       }
 
       // ── Eröffnungsbuchungen: Passiv → Soll 2970 / Haben Passiv ──
       for (const a of passivAccounts) {
-        if (a.id === guvId) continue  // skip the counteraccount itself
-        if (Number(a.balance) === 0) continue
+        if (a.id === guvId) continue  // Gegenkonto selbst überspringen
+        const bal = Number(a.balance)
+        if (Math.abs(bal) < 0.005) continue
+        const amt = Math.abs(bal)
         openingEntries.push({
           date: nextStartStr,
           description: `Eröffnung ${nextYear.name}: ${a.name}`,
-          debit_account_id: guvId,
-          credit_account_id: a.id,
-          amount: Number(a.balance),
+          debit_account_id:  bal >= 0 ? guvId : a.id,
+          credit_account_id: bal >= 0 ? a.id  : guvId,
+          amount: amt,
           fiscal_year_id: nextYear.id,
         })
       }
