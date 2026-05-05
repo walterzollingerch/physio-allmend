@@ -6,6 +6,7 @@ import {
   Plus, Pencil, Trash2, X, Check,
   TrendingUp, TrendingDown, Scale, BookOpen,
   Layers, CalendarRange, Lock, Unlock, ReceiptText, ClipboardCheck, AlertTriangle,
+  FileText, Printer, Search,
 } from 'lucide-react'
 
 type AccountType = 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
@@ -130,7 +131,7 @@ export default function BuchhaltungClient({
   const [groups]                            = useState<AccountGroup[]>(initialGroups)
   const [fiscalYears, setFiscalYears]       = useState<FiscalYear[]>(initialFiscalYears)
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(initialJournalEntries)
-  const [tab, setTab] = useState<'bilanz' | 'erfolg' | 'buchungen'>('bilanz')
+  const [tab, setTab] = useState<'bilanz' | 'erfolg' | 'buchungen' | 'kontoübersicht'>('bilanz')
   const [adminTab, setAdminTab] = useState<'konten' | 'gruppen' | 'jahre'>('konten')
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>(
     () => initialFiscalYears.find(y => !y.is_closed)?.id ?? initialFiscalYears[0]?.id ?? ''
@@ -201,9 +202,10 @@ export default function BuchhaltungClient({
       {fiscalYears.length > 0 && (
         <>
           <div className="flex flex-wrap gap-1 bg-white rounded-xl border border-[#E1D6C2] p-1 w-fit">
-            <TabBtn active={tab === 'bilanz'}    onClick={() => setTab('bilanz')}    icon={<Scale size={15} />}       label="Bilanz" />
-            <TabBtn active={tab === 'erfolg'}    onClick={() => setTab('erfolg')}    icon={<BookOpen size={15} />}    label="Erfolgsrechnung" />
-            <TabBtn active={tab === 'buchungen'} onClick={() => setTab('buchungen')} icon={<ReceiptText size={15} />} label="Buchungen" />
+            <TabBtn active={tab === 'bilanz'}         onClick={() => setTab('bilanz')}         icon={<Scale size={15} />}       label="Bilanz" />
+            <TabBtn active={tab === 'erfolg'}         onClick={() => setTab('erfolg')}         icon={<BookOpen size={15} />}    label="Erfolgsrechnung" />
+            <TabBtn active={tab === 'buchungen'}      onClick={() => setTab('buchungen')}      icon={<ReceiptText size={15} />} label="Buchungen" />
+            <TabBtn active={tab === 'kontoübersicht'} onClick={() => setTab('kontoübersicht')} icon={<FileText size={15} />}    label="Kontoübersicht" />
           </div>
 
           {tab === 'bilanz' && (
@@ -236,6 +238,13 @@ export default function BuchhaltungClient({
               onJournalEntriesChange={setJournalEntries}
               onAccountsChange={setAccounts}
               supabase={supabase}
+            />
+          )}
+          {tab === 'kontoübersicht' && (
+            <KontoübersichtTab
+              accounts={accounts.filter(a => a.is_active)}
+              journalEntries={periodEntries}
+              selectedFiscalYear={selectedFiscalYear ?? null}
             />
           )}
         </>
@@ -276,6 +285,310 @@ export default function BuchhaltungClient({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Kontoübersicht Tab ──────────────────────────────────────
+const TYPE_LABELS_FULL: Record<AccountType, string> = {
+  aktiv: 'Aktiv', passiv: 'Passiv', ertrag: 'Ertrag', aufwand: 'Aufwand',
+}
+
+function KontoübersichtTab({ accounts, journalEntries, selectedFiscalYear }: {
+  accounts: Account[]
+  journalEntries: JournalEntry[]
+  selectedFiscalYear: FiscalYear | null
+}) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [search, setSearch] = useState('')
+
+  const filtered = accounts.filter(a =>
+    a.number.includes(search) ||
+    a.name.toLowerCase().includes(search.toLowerCase())
+  )
+
+  // Group by type for display
+  const grouped: Record<AccountType, Account[]> = { aktiv: [], passiv: [], ertrag: [], aufwand: [] }
+  for (const a of filtered) grouped[a.type].push(a)
+
+  function toggle(id: string) {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+  function toggleAll() {
+    if (selectedIds.length === accounts.length) setSelectedIds([])
+    else setSelectedIds(accounts.map(a => a.id))
+  }
+
+  // Entries per selected account
+  function entriesForAccount(account: Account) {
+    return journalEntries
+      .filter(e => e.debit_account_id === account.id || e.credit_account_id === account.id)
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.created_at ?? '').localeCompare(b.created_at ?? ''))
+  }
+
+  function gegenkonto(e: JournalEntry, account: Account): string {
+    if (e.debit_account_id === account.id) {
+      const c = e.credit_account as { number: string; name: string } | null
+      return c ? `${c.number} ${c.name}` : '–'
+    } else {
+      const d = e.debit_account as { number: string; name: string } | null
+      return d ? `${d.number} ${d.name}` : '–'
+    }
+  }
+
+  // Running balance per entry
+  function buildRows(account: Account) {
+    const entries = entriesForAccount(account)
+    let saldo = 0
+    return entries.map(e => {
+      const amt = Number(e.amount)
+      const isSoll = e.debit_account_id === account.id
+      const normalSign = account.type === 'aktiv' || account.type === 'aufwand'
+      const delta = isSoll ? (normalSign ? amt : -amt) : (normalSign ? -amt : amt)
+      saldo += delta
+      return { entry: e, soll: isSoll ? amt : null, haben: isSoll ? null : amt, saldo }
+    })
+  }
+
+  function handlePrint() {
+    if (selectedIds.length === 0) return
+    const selectedAccounts = accounts.filter(a => selectedIds.includes(a.id))
+    const fy = selectedFiscalYear
+
+    const rows = selectedAccounts.map(account => {
+      const data = buildRows(account)
+      const totalSoll  = data.reduce((s, r) => s + (r.soll  ?? 0), 0)
+      const totalHaben = data.reduce((s, r) => s + (r.haben ?? 0), 0)
+      const finalSaldo = data.at(-1)?.saldo ?? 0
+
+      const rowsHtml = data.length === 0
+        ? `<tr><td colspan="5" style="text-align:center;color:#999;padding:12px">Keine Buchungen</td></tr>`
+        : data.map(r => `
+            <tr>
+              <td>${fmtDate(r.entry.date)}</td>
+              <td>${r.entry.description}</td>
+              <td>${gegenkonto(r.entry, account)}</td>
+              <td style="text-align:right">${r.soll  != null ? fmt(r.soll)  : ''}</td>
+              <td style="text-align:right">${r.haben != null ? fmt(r.haben) : ''}</td>
+              <td style="text-align:right;font-weight:600">${fmt(r.saldo)}</td>
+            </tr>`).join('')
+
+      return `
+        <div class="account-block">
+          <div class="account-header">
+            <span class="account-number">${account.number}</span>
+            <span class="account-name">${account.name}</span>
+            <span class="account-type">${TYPE_LABELS_FULL[account.type]}</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Datum</th>
+                <th>Beschreibung</th>
+                <th>Gegenkonto</th>
+                <th>Soll (CHF)</th>
+                <th>Haben (CHF)</th>
+                <th>Saldo (CHF)</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+            <tfoot>
+              <tr>
+                <td colspan="3"><strong>Total</strong></td>
+                <td style="text-align:right"><strong>${fmt(totalSoll)}</strong></td>
+                <td style="text-align:right"><strong>${fmt(totalHaben)}</strong></td>
+                <td style="text-align:right"><strong>${fmt(finalSaldo)}</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>`
+    }).join('')
+
+    const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Kontoübersicht – Physio Allmend</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11px; color: #222; margin: 0; padding: 20px 28px; }
+  .doc-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 18px; }
+  .doc-title { font-size: 18px; font-weight: 700; color: #2A2622; }
+  .doc-meta { font-size: 10px; color: #666; text-align: right; }
+  .account-block { margin-bottom: 24px; page-break-inside: avoid; }
+  .account-header { display: flex; align-items: baseline; gap: 10px; background: #F4EDE2; padding: 6px 10px; border-radius: 4px; margin-bottom: 4px; }
+  .account-number { font-weight: 700; font-size: 13px; color: #2A2622; font-family: monospace; }
+  .account-name { font-size: 13px; font-weight: 600; color: #2A2622; flex: 1; }
+  .account-type { font-size: 10px; color: #7A6E60; background: #EDE7DA; padding: 1px 6px; border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #F7F2EC; text-align: left; padding: 5px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #7A6E60; border-bottom: 1px solid #E1D6C2; }
+  td { padding: 4px 8px; border-bottom: 1px solid #f0ebe0; }
+  tfoot td { border-top: 1px solid #333; border-bottom: none; background: #F7F2EC; }
+  @media print {
+    body { padding: 12px 16px; }
+    .account-block { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+  <div class="doc-header">
+    <div>
+      <div class="doc-title">Kontoübersicht</div>
+      <div style="font-size:11px;color:#666;margin-top:2px">Physio Allmend${fy ? ` · Geschäftsjahr ${fy.name} (${fmtDate(fy.start_date)} – ${fmtDate(fy.end_date)})` : ''}</div>
+    </div>
+    <div class="doc-meta">
+      Erstellt: ${new Date().toLocaleDateString('de-CH')}<br>
+      ${selectedAccounts.length} Konto${selectedAccounts.length !== 1 ? 's' : ''}
+    </div>
+  </div>
+  ${rows}
+</body></html>`
+
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => { win.print() }, 400)
+  }
+
+  const selectedAccounts = accounts.filter(a => selectedIds.includes(a.id))
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* ── Konten-Auswahl ── */}
+        <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden flex flex-col">
+          <div className="px-4 py-3 border-b border-[#E1D6C2] flex items-center justify-between">
+            <h2 className="font-semibold text-sm text-[#2A2622]">Konten wählen</h2>
+            <button onClick={toggleAll} className="text-xs text-[#6B8E7F] hover:underline">
+              {selectedIds.length === accounts.length ? 'Alle abwählen' : 'Alle wählen'}
+            </button>
+          </div>
+          <div className="px-3 py-2 border-b border-[#E1D6C2]">
+            <div className="flex items-center gap-2 bg-[#F7F2EC] rounded-lg px-3 py-1.5">
+              <Search size={13} className="text-[#7A6E60]" />
+              <input
+                value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Suchen…"
+                className="bg-transparent text-sm flex-1 outline-none text-[#2A2622] placeholder:text-[#B0A898]"
+              />
+            </div>
+          </div>
+          <div className="overflow-y-auto flex-1 max-h-[480px]">
+            {(['aktiv','passiv','ertrag','aufwand'] as AccountType[]).map(type => {
+              const list = grouped[type]
+              if (list.length === 0) return null
+              return (
+                <div key={type}>
+                  <div className="px-4 py-1.5 bg-[#F4EDE2] text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">
+                    {TYPE_LABELS_FULL[type]}
+                  </div>
+                  {list.map(a => (
+                    <label key={a.id} className="flex items-center gap-3 px-4 py-2 hover:bg-[#FDFAF6] cursor-pointer border-b border-[#F7F2EC] last:border-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(a.id)}
+                        onChange={() => toggle(a.id)}
+                        className="accent-[#6B8E7F] w-4 h-4 shrink-0"
+                      />
+                      <span className="font-mono text-xs text-[#7A6E60] w-10 shrink-0">{a.number}</span>
+                      <span className="text-sm text-[#2A2622] truncate">{a.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* ── Übersicht ── */}
+        <div className="lg:col-span-2 space-y-4">
+          {selectedIds.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-[#E1D6C2] p-12 text-center">
+              <FileText size={32} className="text-[#C8BBA8] mx-auto mb-3" />
+              <p className="text-sm text-[#7A6E60]">Bitte links ein oder mehrere Konten wählen</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex justify-end">
+                <button
+                  onClick={handlePrint}
+                  className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+                >
+                  <Printer size={15} /> PDF / Drucken
+                </button>
+              </div>
+
+              {selectedAccounts.map(account => {
+                const rows = buildRows(account)
+                const totalSoll  = rows.reduce((s, r) => s + (r.soll  ?? 0), 0)
+                const totalHaben = rows.reduce((s, r) => s + (r.haben ?? 0), 0)
+                const finalSaldo = rows.at(-1)?.saldo ?? 0
+
+                return (
+                  <div key={account.id} className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
+                    {/* Account header */}
+                    <div className="flex items-center gap-3 px-5 py-3 bg-[#F4EDE2] border-b border-[#E1D6C2]">
+                      <span className="font-mono font-bold text-[#2A2622]">{account.number}</span>
+                      <span className="font-semibold text-[#2A2622] flex-1">{account.name}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-[#EDE7DA] text-[#7A6E60]">{TYPE_LABELS_FULL[account.type]}</span>
+                      <span className={`text-sm font-bold ${finalSaldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>
+                        CHF {fmt(finalSaldo)}
+                      </span>
+                    </div>
+
+                    {rows.length === 0 ? (
+                      <p className="text-sm text-[#7A6E60] text-center py-8">Keine Buchungen im gewählten Geschäftsjahr</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
+                              <th className="text-left px-4 py-2 w-24">Datum</th>
+                              <th className="text-left py-2">Beschreibung</th>
+                              <th className="text-left py-2 hidden md:table-cell">Gegenkonto</th>
+                              <th className="text-right py-2 pr-4">Soll</th>
+                              <th className="text-right py-2 pr-4">Haben</th>
+                              <th className="text-right py-2 pr-4">Saldo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map(({ entry, soll, haben, saldo }, i) => (
+                              <tr key={entry.id ?? i} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6]">
+                                <td className="px-4 py-2 text-xs text-[#7A6E60] whitespace-nowrap">{fmtDate(entry.date)}</td>
+                                <td className="py-2 pr-3 text-[#2A2622]">{entry.description}</td>
+                                <td className="py-2 pr-3 text-xs text-[#7A6E60] hidden md:table-cell whitespace-nowrap">{gegenkonto(entry, account)}</td>
+                                <td className="py-2 pr-4 text-right font-mono text-xs text-[#2A2622]">
+                                  {soll != null ? fmt(soll) : ''}
+                                </td>
+                                <td className="py-2 pr-4 text-right font-mono text-xs text-[#2A2622]">
+                                  {haben != null ? fmt(haben) : ''}
+                                </td>
+                                <td className={`py-2 pr-4 text-right font-mono text-xs font-semibold ${saldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>
+                                  {fmt(saldo)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-[#F7F2EC] border-t border-[#E1D6C2] font-semibold text-xs">
+                              <td colSpan={3} className="px-4 py-2">Total</td>
+                              <td className="py-2 pr-4 text-right font-mono">{fmt(totalSoll)}</td>
+                              <td className="py-2 pr-4 text-right font-mono">{fmt(totalHaben)}</td>
+                              <td className={`py-2 pr-4 text-right font-mono font-bold ${finalSaldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>{fmt(finalSaldo)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
