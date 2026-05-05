@@ -143,7 +143,7 @@ function Nav() {
           {auth.status === 'staff' && (
             <Link
               href="/dashboard"
-              className="text-sm font-medium bg-[#2A2622] text-white px-4 py-1.5 rounded-lg hover:bg-[#4A4138] transition-colors"
+              className="text-sm font-medium border border-[#6B8E7F] text-[#6B8E7F] hover:bg-[#6B8E7F] hover:text-white px-4 py-1.5 rounded-lg transition-colors"
             >
               Dashboard
             </Link>
