@@ -1245,6 +1245,108 @@ function KontenTab({ accounts, groups, onAccountsChange, supabase }: {
 }
 
 // ── Buchungen Tab ────────────────────────────────────────────
+// ── Account Combobox ─────────────────────────────────────────
+function AccountCombobox({
+  label, accounts, value, onChange, amount, isSoll, periodBalMap,
+}: {
+  label: string
+  accounts: Account[]
+  value: string
+  onChange: (id: string) => void
+  amount: string
+  isSoll: boolean
+  periodBalMap: Map<string, number>
+}) {
+  const [open, setOpen]   = useState(false)
+  const [query, setQuery] = useState('')
+
+  const selected = accounts.find(a => a.id === value) ?? null
+
+  const filtered = query.trim()
+    ? accounts.filter(a =>
+        a.number.toLowerCase().includes(query.toLowerCase()) ||
+        a.name.toLowerCase().includes(query.toLowerCase())
+      )
+    : accounts
+
+  function select(acc: Account) {
+    onChange(acc.id)
+    setQuery('')
+    setOpen(false)
+  }
+
+  const amt         = parseFloat(amount) || 0
+  const currentBal  = selected != null ? (periodBalMap.get(selected.id) ?? 0) : null
+  const delta       = selected && amt > 0
+    ? (isSoll
+        ? ((selected.type === 'aktiv' || selected.type === 'aufwand') ?  amt : -amt)
+        : ((selected.type === 'passiv' || selected.type === 'ertrag') ?  amt : -amt))
+    : 0
+  const afterBal = currentBal !== null ? currentBal + delta : null
+
+  const displayValue = open ? query : (selected ? `${selected.number}  ${selected.name}` : '')
+
+  return (
+    <Field label={label}>
+      <div className="relative">
+        <input
+          type="text"
+          value={displayValue}
+          onChange={e => { setQuery(e.target.value); setOpen(true) }}
+          onFocus={() => { setQuery(''); setOpen(true) }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="— Konto suchen —"
+          className={inp}
+          autoComplete="off"
+        />
+        {open && (
+          <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-[#E1D6C2] rounded-xl shadow-xl max-h-60 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-[#7A6E60]">Keine Konten gefunden</p>
+            ) : (
+              filtered.map(a => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onMouseDown={() => select(a)}
+                  className={`w-full text-left px-4 py-2 text-sm flex items-center gap-3 hover:bg-[#F7F2EC] transition-colors ${a.id === value ? 'bg-[#F4EDE2] font-medium' : ''}`}
+                >
+                  <span className="font-mono text-xs text-[#7A6E60] w-10 shrink-0">{a.number}</span>
+                  <span className="text-[#2A2622] truncate">{a.name}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+      {selected && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[#7A6E60]">
+          <span>
+            Saldo:{' '}
+            <span className={`font-semibold ${currentBal! < 0 ? 'text-red-600' : 'text-[#2A2622]'}`}>
+              CHF {fmt(currentBal!)}
+            </span>
+          </span>
+          {amt > 0 && (
+            <>
+              <span className="text-[#C5B99A]">→</span>
+              <span>
+                Nach Buchung:{' '}
+                <span className={`font-semibold ${afterBal! < 0 ? 'text-red-600' : 'text-[#6B8E7F]'}`}>
+                  CHF {fmt(afterBal!)}
+                </span>
+                <span className={`ml-1 ${delta >= 0 ? 'text-[#6B8E7F]' : 'text-red-500'}`}>
+                  ({delta >= 0 ? '+' : ''}{fmt(delta)})
+                </span>
+              </span>
+            </>
+          )}
+        </div>
+      )}
+    </Field>
+  )
+}
+
 function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selectedFiscalYearClosed, selectedFiscalYear, onJournalEntriesChange, onAccountsChange, supabase }: {
   accounts: Account[]
   journalEntries: JournalEntry[]
@@ -1422,7 +1524,8 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     })
   }
 
-  const sortedAccounts = [...accounts].sort((a, b) => a.number.localeCompare(b.number))
+  const sortedAccounts  = [...accounts].sort((a, b) => a.number.localeCompare(b.number))
+  const periodBalMap    = computePeriodBalances(accounts, journalEntries)
 
   return (
     <div>
@@ -1462,35 +1565,30 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
             <Field label="Betrag (CHF) *">
               <input type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(e.target.value)} required placeholder="0.00" className={inp} />
             </Field>
-            <Field label="Soll-Konto (Debit) *">
-              <select value={debitId} onChange={e => setDebitId(e.target.value)} required className={inp}>
-                <option value="">— Konto wählen —</option>
-                {sortedAccounts.map(a => (
-                  <option key={a.id} value={a.id}>{a.number} {a.name}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Haben-Konto (Kredit) *">
-              <select value={creditId} onChange={e => setCreditId(e.target.value)} required className={inp}>
-                <option value="">— Konto wählen —</option>
-                {sortedAccounts.map(a => (
-                  <option key={a.id} value={a.id}>{a.number} {a.name}</option>
-                ))}
-              </select>
-            </Field>
+            <AccountCombobox
+              label="Soll-Konto (Debit) *"
+              accounts={sortedAccounts}
+              value={debitId}
+              onChange={setDebitId}
+              amount={amount}
+              isSoll={true}
+              periodBalMap={periodBalMap}
+            />
+            <AccountCombobox
+              label="Haben-Konto (Kredit) *"
+              accounts={sortedAccounts}
+              value={creditId}
+              onChange={setCreditId}
+              amount={amount}
+              isSoll={false}
+              periodBalMap={periodBalMap}
+            />
             <div className="sm:col-span-2">
               <Field label="Beschreibung *">
                 <input value={description} onChange={e => setDesc(e.target.value)} required placeholder="z.B. Mieteinnahme Januar" className={inp} />
               </Field>
             </div>
           </div>
-          {debitId && creditId && (
-            <div className="mt-3 text-xs text-[#7A6E60] bg-[#F7F2EC] rounded-lg px-3 py-2">
-              Soll: <span className="font-medium text-[#2A2622]">{accounts.find(a => a.id === debitId)?.number} {accounts.find(a => a.id === debitId)?.name}</span>
-              {' / '}
-              Haben: <span className="font-medium text-[#2A2622]">{accounts.find(a => a.id === creditId)?.number} {accounts.find(a => a.id === creditId)?.name}</span>
-            </div>
-          )}
           {error && <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
           <div className="flex gap-3 mt-4">
             <button type="button" onClick={closeForm} className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors">
