@@ -66,6 +66,24 @@ interface InvoiceForPayment {
   discount_value: number
 }
 
+interface PendingTransaction {
+  tempId: string
+  date: string
+  amount: number
+  cdtDbtInd: 'CRDT' | 'DBIT'
+  description: string
+  debtorName: string
+  bankAccountId: string
+  rawLine: number
+}
+
+interface ImportResult {
+  totalRead: number
+  autoBooked: number
+  pendingCount: number
+  errors: { line: number; reason: string }[]
+}
+
 interface GroupNode extends AccountGroup {
   children: GroupNode[]
   nodeAccounts: Account[]
@@ -1256,6 +1274,72 @@ function KontenTab({ accounts, groups, onAccountsChange, supabase }: {
 }
 
 // ── Buchungen Tab ────────────────────────────────────────────
+// ── CAMT.053 Parser ──────────────────────────────────────────
+interface RawCamtEntry {
+  line: number
+  date: string
+  amount: number
+  cdtDbtInd: 'CRDT' | 'DBIT'
+  remittance: string
+  debtorName: string
+  error?: string
+}
+
+function parseCamt053(xmlText: string): RawCamtEntry[] {
+  try {
+    const doc = new DOMParser().parseFromString(xmlText, 'application/xml')
+    if (doc.querySelector('parsererror')) return [{ line: 0, date: '', amount: 0, cdtDbtInd: 'CRDT', remittance: '', debtorName: '', error: 'XML-Parsing-Fehler' }]
+
+    const getText = (el: Element, tag: string) =>
+      el.getElementsByTagName(tag)[0]?.textContent?.trim() ?? ''
+
+    const entries = Array.from(doc.getElementsByTagName('Ntry'))
+    return entries.map((ntry, idx) => {
+      const line = idx + 1
+      try {
+        const sts = getText(ntry, 'Sts')
+        if (sts && sts !== 'BOOK') return { line, date: '', amount: 0, cdtDbtInd: 'CRDT', remittance: '', debtorName: '', error: `Status ${sts} übersprungen` }
+
+        const amtEl  = ntry.getElementsByTagName('Amt')[0]
+        const amount = parseFloat(amtEl?.textContent?.trim() ?? '0')
+        if (!amount || isNaN(amount)) return { line, date: '', amount: 0, cdtDbtInd: 'CRDT', remittance: '', debtorName: '', error: 'Kein gültiger Betrag' }
+
+        const cdi = (getText(ntry, 'CdtDbtInd') || 'CRDT') as 'CRDT' | 'DBIT'
+
+        // Date: prefer BookgDt/Dt, fallback ValDt/Dt
+        const bookDt = ntry.getElementsByTagName('BookgDt')[0]
+        const valDt  = ntry.getElementsByTagName('ValDt')[0]
+        const date   = getText(bookDt ?? valDt ?? ntry, 'Dt')
+        if (!date) return { line, date: '', amount: 0, cdtDbtInd: cdi, remittance: '', debtorName: '', error: 'Kein Datum' }
+
+        // Remittance info (all Ustrd + Strd/AddtlRmtInf)
+        const txDtlsAll = Array.from(ntry.getElementsByTagName('TxDtls'))
+        let remittance = ''
+        let debtorName = ''
+        for (const tx of txDtlsAll) {
+          Array.from(tx.getElementsByTagName('Ustrd')).forEach(u => { remittance += ' ' + (u.textContent?.trim() ?? '') })
+          Array.from(tx.getElementsByTagName('AddtlRmtInf')).forEach(u => { remittance += ' ' + (u.textContent?.trim() ?? '') })
+          if (!debtorName) debtorName = getText(tx, 'Nm')
+        }
+        // Fallback: NtryDtls level Nm
+        if (!debtorName) debtorName = getText(ntry, 'Nm')
+        // Also check AddtlNtryInf at entry level
+        if (!remittance.trim()) remittance = getText(ntry, 'AddtlNtryInf')
+
+        return { line, date, amount, cdtDbtInd: cdi, remittance: remittance.trim(), debtorName: debtorName.trim() }
+      } catch {
+        return { line, date: '', amount: 0, cdtDbtInd: 'CRDT', remittance: '', debtorName: '', error: 'Verarbeitungsfehler' }
+      }
+    })
+  } catch {
+    return [{ line: 0, date: '', amount: 0, cdtDbtInd: 'CRDT', remittance: '', debtorName: '', error: 'Datei konnte nicht gelesen werden' }]
+  }
+}
+
+function extractInvoiceNumbers(text: string): string[] {
+  return [...new Set((text.match(/R\d{3,5}/gi) ?? []).map(s => s.toUpperCase()))]
+}
+
 // ── Account Combobox ─────────────────────────────────────────
 function AccountCombobox({
   label, accounts, value, onChange, amount, isSoll, periodBalMap,
@@ -1389,6 +1473,22 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
   const [creditId, setCreditId] = useState('')
   const [amount, setAmount]     = useState('')
 
+  // CAMT Import
+  const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
+  const [importModal, setImportModal]               = useState(false)
+  const [importBankAccId, setImportBankAccId]       = useState('')
+  const [importFordAccId, setImportFordAccId]       = useState('')
+  const [importFile, setImportFile]                 = useState<File | null>(null)
+  const [importResult, setImportResult]             = useState<ImportResult | null>(null)
+  const [importProcessing, setImportProcessing]     = useState(false)
+  // Pending transaction completion
+  const [editPending, setEditPending]               = useState<PendingTransaction | null>(null)
+  const [pendingCreditId, setPendingCreditId]       = useState('')
+  const [pendingLinkInv, setPendingLinkInv]         = useState(false)
+  const [pendingInvoice, setPendingInvoice]         = useState<InvoiceForPayment | null>(null)
+  const [pendingDesc, setPendingDesc]               = useState('')
+  const [pendingError, setPendingError]             = useState<string | null>(null)
+
   // Debitor-Verknüpfung
   const [linkDebitor, setLinkDebitor]               = useState(false)
   const [debitorModal, setDebitorModal]             = useState(false)
@@ -1447,9 +1547,176 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
   }
 
   function selectInvoice(inv: InvoiceForPayment) {
-    setSelectedInvoice(inv)
-    if (!amount || parseFloat(amount) === 0) setAmount(String(inv.total.toFixed(2)))
+    if (editPending) {
+      // Called from pending transaction completion
+      setPendingInvoice(inv)
+    } else {
+      // Called from booking form
+      setSelectedInvoice(inv)
+      if (!amount || parseFloat(amount) === 0) setAmount(String(inv.total.toFixed(2)))
+    }
     setDebitorModal(false)
+  }
+
+  async function processImport() {
+    if (!importFile || !importBankAccId) return
+    setImportProcessing(true)
+    setImportResult(null)
+
+    const xmlText = await importFile.text()
+    const entries = parseCamt053(xmlText)
+
+    const result: ImportResult = { totalRead: entries.length, autoBooked: 0, pendingCount: 0, errors: [] }
+    const newPending: PendingTransaction[] = []
+
+    // Fetch open invoices for matching
+    const { data: invData } = await supabase
+      .from('invoices')
+      .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, invoice_items(unit_price, quantity)')
+      .eq('status', 'gesendet')
+    const openInvList: InvoiceForPayment[] = (invData ?? []).map((inv: {
+      id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null
+      discount_type: string; discount_value: number
+      invoice_items: { unit_price: number; quantity: number }[]
+    }) => {
+      const sub = (inv.invoice_items ?? []).reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
+      const disc = inv.discount_type === 'percent' ? sub * Number(inv.discount_value) / 100 : Number(inv.discount_value)
+      return { ...inv, total: sub - disc } as InvoiceForPayment
+    })
+
+    const bankAcc = accounts.find(a => a.id === importBankAccId)
+    const fordAcc = importFordAccId ? accounts.find(a => a.id === importFordAccId) : null
+
+    const JE_SELECT = '*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)'
+
+    for (const entry of entries) {
+      if (entry.error && entry.amount === 0) {
+        result.errors.push({ line: entry.line, reason: entry.error })
+        continue
+      }
+
+      // Only CRDT entries (incoming payments) for auto-booking
+      if (entry.cdtDbtInd !== 'CRDT') {
+        newPending.push({ tempId: `p-${Date.now()}-${entry.line}`, date: entry.date, amount: entry.amount, cdtDbtInd: entry.cdtDbtInd, description: entry.remittance || entry.debtorName || 'Import', debtorName: entry.debtorName, bankAccountId: importBankAccId, rawLine: entry.line })
+        result.pendingCount++
+        continue
+      }
+
+      // Try invoice match via number in remittance
+      const nums = extractInvoiceNumbers(entry.remittance + ' ' + entry.debtorName)
+      const matched = nums.length === 1 ? openInvList.find(inv => inv.number.toUpperCase() === nums[0]) : null
+
+      // Auto-book if: matched invoice + Forderungskonto known + amount matches invoice total (±0.01)
+      const amountMatch = matched && Math.abs(matched.total - entry.amount) < 0.015
+
+      if (matched && bankAcc && fordAcc && amountMatch) {
+        try {
+          const desc = `Zahlung ${matched.number} – ${entry.debtorName || matched.customer_name}`
+          const { data: rows, error: err } = await supabase.from('journal_entries')
+            .insert({ date: entry.date, description: desc, debit_account_id: importBankAccId, credit_account_id: importFordAccId, amount: entry.amount, fiscal_year_id: selectedFiscalYearId, invoice_id: matched.id })
+            .select(JE_SELECT)
+          if (err) throw new Error(err.message)
+
+          const newEntry = Array.isArray(rows) ? rows[0] : rows
+          if (newEntry) onJournalEntriesChange(prev => [newEntry as JournalEntry, ...prev])
+
+          // Balance deltas
+          const bankDelta = (bankAcc.type === 'aktiv' || bankAcc.type === 'aufwand') ? entry.amount : -entry.amount
+          const fordDelta = (fordAcc.type === 'passiv' || fordAcc.type === 'ertrag') ? entry.amount : -entry.amount
+          await Promise.all([
+            supabase.from('accounts').update({ balance: Number(bankAcc.balance) + bankDelta }).eq('id', importBankAccId),
+            supabase.from('accounts').update({ balance: Number(fordAcc.balance) + fordDelta }).eq('id', importFordAccId),
+          ])
+          onAccountsChange(prev => prev.map(a => {
+            if (a.id === importBankAccId) return { ...a, balance: Number(a.balance) + bankDelta }
+            if (a.id === importFordAccId) return { ...a, balance: Number(a.balance) + fordDelta }
+            return a
+          }))
+
+          // Mark invoice as bezahlt
+          await supabase.from('invoices').update({ status: 'bezahlt' }).eq('id', matched.id)
+
+          result.autoBooked++
+        } catch (e) {
+          result.errors.push({ line: entry.line, reason: e instanceof Error ? e.message : 'Fehler' })
+        }
+      } else {
+        newPending.push({
+          tempId: `p-${Date.now()}-${entry.line}`,
+          date: entry.date,
+          amount: entry.amount,
+          cdtDbtInd: entry.cdtDbtInd,
+          description: entry.remittance || entry.debtorName || 'Import',
+          debtorName: entry.debtorName,
+          bankAccountId: importBankAccId,
+          rawLine: entry.line,
+        })
+        result.pendingCount++
+      }
+    }
+
+    setPendingTransactions(prev => [...prev, ...newPending])
+    setImportResult(result)
+    setImportProcessing(false)
+    setImportFile(null)
+  }
+
+  function openPendingEdit(pt: PendingTransaction) {
+    setEditPending(pt)
+    setPendingCreditId(importFordAccId)
+    setPendingDesc(pt.description)
+    setPendingLinkInv(false)
+    setPendingInvoice(null)
+    setPendingError(null)
+  }
+
+  async function completePendingBooking() {
+    if (!editPending || !pendingCreditId) { setPendingError('Gegenkonto wählen'); return }
+    const bankAcc   = accounts.find(a => a.id === editPending.bankAccountId)
+    const creditAcc = accounts.find(a => a.id === pendingCreditId)
+    if (!bankAcc || !creditAcc) { setPendingError('Konto nicht gefunden'); return }
+
+    const debitId  = editPending.cdtDbtInd === 'CRDT' ? editPending.bankAccountId : pendingCreditId
+    const creditId = editPending.cdtDbtInd === 'CRDT' ? pendingCreditId : editPending.bankAccountId
+    const debitAcc = accounts.find(a => a.id === debitId)!
+    const creditAcc2 = accounts.find(a => a.id === creditId)!
+
+    setPendingError(null)
+    start(async () => {
+      const JE_SELECT = '*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)'
+      const entry = {
+        date: editPending.date,
+        description: pendingDesc || editPending.description,
+        debit_account_id: debitId,
+        credit_account_id: creditId,
+        amount: editPending.amount,
+        fiscal_year_id: selectedFiscalYearId,
+        ...(pendingLinkInv && pendingInvoice ? { invoice_id: pendingInvoice.id } : {}),
+      }
+      const { data: rows, error: err } = await supabase.from('journal_entries').insert(entry).select(JE_SELECT)
+      if (err) { setPendingError(err.message); return }
+      const newEntry = Array.isArray(rows) ? rows[0] : rows
+      if (newEntry) onJournalEntriesChange(prev => [newEntry as JournalEntry, ...prev])
+
+      const debitDelta  = (debitAcc.type === 'aktiv' || debitAcc.type === 'aufwand') ? editPending.amount : -editPending.amount
+      const creditDelta = (creditAcc2.type === 'passiv' || creditAcc2.type === 'ertrag') ? editPending.amount : -editPending.amount
+      await Promise.all([
+        supabase.from('accounts').update({ balance: Number(debitAcc.balance) + debitDelta }).eq('id', debitId),
+        supabase.from('accounts').update({ balance: Number(creditAcc2.balance) + creditDelta }).eq('id', creditId),
+      ])
+      onAccountsChange(prev => prev.map(a => {
+        if (a.id === debitId)  return { ...a, balance: Number(a.balance) + debitDelta }
+        if (a.id === creditId) return { ...a, balance: Number(a.balance) + creditDelta }
+        return a
+      }))
+
+      if (pendingLinkInv && pendingInvoice) {
+        await supabase.from('invoices').update({ status: 'bezahlt' }).eq('id', pendingInvoice.id)
+      }
+
+      setPendingTransactions(prev => prev.filter(p => p.tempId !== editPending.tempId))
+      setEditPending(null)
+    })
   }
 
   // Helper: apply balance delta to an account in DB and local state
@@ -1650,9 +1917,25 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
   const sortedAccounts  = [...accounts].sort((a, b) => a.number.localeCompare(b.number))
   const periodBalMap    = computePeriodBalances(accounts, journalEntries)
 
+  // Default bank/forderungen accounts for import
+  const defaultBankAcc = sortedAccounts.find(a => a.number.startsWith('102') || a.number.startsWith('100'))
+  const defaultFordAcc = sortedAccounts.find(a => a.number.startsWith('110'))
+
   return (
     <div>
-      <div className="flex justify-end mb-5">
+      <div className="flex items-center justify-end gap-2 mb-5">
+        <button
+          onClick={() => {
+            setImportModal(true)
+            setImportResult(null)
+            setImportFile(null)
+            if (!importBankAccId && defaultBankAcc) setImportBankAccId(defaultBankAcc.id)
+            if (!importFordAccId && defaultFordAcc) setImportFordAccId(defaultFordAcc.id)
+          }}
+          className="flex items-center gap-2 border border-[#E1D6C2] bg-white hover:bg-[#F7F2EC] text-[#4A4138] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          <FileText size={16} /> Bankabgleich importieren
+        </button>
         <button
           onClick={openNew}
           disabled={selectedFiscalYearClosed}
@@ -1762,6 +2045,44 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         </form>
       )}
 
+      {/* Pending transactions from import */}
+      {pendingTransactions.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <AlertTriangle size={15} className="text-amber-600" />
+            <span className="text-sm font-medium text-amber-700">{pendingTransactions.length} importierte Buchung{pendingTransactions.length !== 1 ? 'en' : ''} zu bearbeiten</span>
+          </div>
+          <div className="bg-white rounded-2xl border border-amber-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-amber-100 bg-amber-50">
+                  <th className="text-left px-5 py-2">Datum</th>
+                  <th className="text-left py-2">Beschreibung</th>
+                  <th className="text-left py-2 hidden sm:table-cell">Auftraggeber</th>
+                  <th className="text-right py-2 pr-5">Betrag (CHF)</th>
+                  <th className="py-2 pr-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingTransactions.map(pt => (
+                  <tr key={pt.tempId} className="border-b border-amber-50 last:border-0 hover:bg-amber-50 cursor-pointer" onClick={() => openPendingEdit(pt)}>
+                    <td className="px-5 py-2.5 text-[#4A4138]">{fmtDate(pt.date)}</td>
+                    <td className="py-2.5 pr-3 text-[#2A2622] max-w-[200px] truncate">{pt.description}</td>
+                    <td className="py-2.5 pr-3 text-[#7A6E60] hidden sm:table-cell">{pt.debtorName || '—'}</td>
+                    <td className="py-2.5 pr-5 text-right font-semibold text-[#2A2622]">{fmt(pt.amount)}</td>
+                    <td className="py-2.5 pr-3 text-right">
+                      <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
+                        <AlertTriangle size={10} /> bearbeiten
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
         {journalEntries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-[#7A6E60]">
@@ -1823,6 +2144,194 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
           </table>
         )}
       </div>
+
+      {/* ── Modal: CAMT Import ────────────────────────────────── */}
+      {importModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E1D6C2]">
+              <h2 className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>Bankabgleich – CAMT.053 / Z53</h2>
+              <button onClick={() => setImportModal(false)} className="text-[#7A6E60] hover:text-[#2A2622]"><X size={18} /></button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              {/* File upload */}
+              <div>
+                <label className="block text-xs font-medium text-[#7A6E60] mb-1">CAMT.053-Datei (XML) *</label>
+                <input
+                  type="file" accept=".xml,.camt,.053"
+                  onChange={e => setImportFile(e.target.files?.[0] ?? null)}
+                  className="w-full text-sm text-[#4A4138] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-[#6B8E7F] file:text-white hover:file:bg-[#5a7a6c] file:cursor-pointer cursor-pointer"
+                />
+                {importFile && <p className="text-xs text-[#7A6E60] mt-1">{importFile.name}</p>}
+              </div>
+
+              {/* Bank account */}
+              <div>
+                <label className="block text-xs font-medium text-[#7A6E60] mb-1">Bankkonto (Debit bei Eingang) *</label>
+                <select value={importBankAccId} onChange={e => setImportBankAccId(e.target.value)} className={inp}>
+                  <option value="">— Konto wählen —</option>
+                  {sortedAccounts.map(a => <option key={a.id} value={a.id}>{a.number} {a.name}</option>)}
+                </select>
+              </div>
+
+              {/* Forderungen account */}
+              <div>
+                <label className="block text-xs font-medium text-[#7A6E60] mb-1">Debitorenkonto / Forderungen (für Auto-Matching)</label>
+                <select value={importFordAccId} onChange={e => setImportFordAccId(e.target.value)} className={inp}>
+                  <option value="">— Konto wählen (optional) —</option>
+                  {sortedAccounts.map(a => <option key={a.id} value={a.id}>{a.number} {a.name}</option>)}
+                </select>
+                <p className="text-xs text-[#7A6E60] mt-1">Wenn gesetzt: Zahlungen mit eindeutiger Rechnungsnummer werden automatisch gebucht und die Rechnung auf «Bezahlt» gestellt.</p>
+              </div>
+
+              {/* Import result */}
+              {importResult && (
+                <div className="bg-[#F7F2EC] rounded-xl px-4 py-3 space-y-2 text-sm">
+                  <p className="font-semibold text-[#2A2622]">Import-Ergebnis</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-white rounded-lg px-3 py-2 text-center">
+                      <p className="text-xs text-[#7A6E60]">Gelesen</p>
+                      <p className="text-lg font-bold text-[#2A2622]">{importResult.totalRead}</p>
+                    </div>
+                    <div className="bg-white rounded-lg px-3 py-2 text-center">
+                      <p className="text-xs text-[#7A6E60]">Auto-gebucht</p>
+                      <p className="text-lg font-bold text-green-700">{importResult.autoBooked}</p>
+                    </div>
+                    <div className="bg-white rounded-lg px-3 py-2 text-center">
+                      <p className="text-xs text-[#7A6E60]">Zu bearbeiten</p>
+                      <p className="text-lg font-bold text-amber-600">{importResult.pendingCount}</p>
+                    </div>
+                  </div>
+                  {importResult.errors.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-xs font-medium text-red-700 mb-1">Fehlerhafte Zeilen ({importResult.errors.length}):</p>
+                      <div className="max-h-24 overflow-y-auto space-y-0.5">
+                        {importResult.errors.map((e, i) => (
+                          <p key={i} className="text-xs text-red-600">Zeile {e.line}: {e.reason}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 px-6 py-4 border-t border-[#E1D6C2]">
+              <button onClick={() => setImportModal(false)} className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC]">
+                {importResult ? 'Schliessen' : 'Abbrechen'}
+              </button>
+              {!importResult && (
+                <button
+                  onClick={processImport}
+                  disabled={!importFile || !importBankAccId || importProcessing}
+                  className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  {importProcessing ? 'Verarbeite…' : 'Importieren'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Pending Transaction bearbeiten ──────────────── */}
+      {editPending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E1D6C2]">
+              <h2 className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>Buchung vervollständigen</h2>
+              <button onClick={() => setEditPending(null)} className="text-[#7A6E60] hover:text-[#2A2622]"><X size={18} /></button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              {/* Transaction info */}
+              <div className="bg-[#F7F2EC] rounded-xl px-4 py-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-[#7A6E60]">Datum</span>
+                  <span className="font-medium text-[#2A2622]">{fmtDate(editPending.date)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#7A6E60]">Betrag</span>
+                  <span className="font-semibold text-[#2A2622]">CHF {fmt(editPending.amount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#7A6E60]">Auftraggeber</span>
+                  <span className="text-[#2A2622]">{editPending.debtorName || '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#7A6E60]">Bankkonto</span>
+                  <span className="font-mono text-xs text-[#2A2622]">{accounts.find(a => a.id === editPending.bankAccountId)?.number} {accounts.find(a => a.id === editPending.bankAccountId)?.name}</span>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-xs font-medium text-[#7A6E60] mb-1">Beschreibung</label>
+                <input value={pendingDesc} onChange={e => setPendingDesc(e.target.value)} className={inp} />
+              </div>
+
+              {/* Gegenkonto */}
+              <div>
+                <label className="block text-xs font-medium text-[#7A6E60] mb-1">
+                  {editPending.cdtDbtInd === 'CRDT' ? 'Gegenkonto (Haben / Kredit) *' : 'Gegenkonto (Soll / Debit) *'}
+                </label>
+                <AccountCombobox
+                  label=""
+                  accounts={sortedAccounts}
+                  value={pendingCreditId}
+                  onChange={setPendingCreditId}
+                  amount={String(editPending.amount)}
+                  isSoll={editPending.cdtDbtInd === 'DBIT'}
+                  periodBalMap={periodBalMap}
+                />
+              </div>
+
+              {/* Debitor verknüpfen */}
+              <label className="flex items-center gap-2 text-sm text-[#7A6E60] cursor-pointer select-none">
+                <input type="checkbox" checked={pendingLinkInv} onChange={e => { setPendingLinkInv(e.target.checked); if (!e.target.checked) setPendingInvoice(null) }} className="rounded border-[#E1D6C2] accent-[#6B8E7F]" />
+                Mit Debitor verknüpfen (Rechnung als bezahlt markieren)
+              </label>
+              {pendingLinkInv && (
+                <div>
+                  {pendingInvoice ? (
+                    <div className="flex items-center gap-2 bg-[#F4EDE2] rounded-xl px-3 py-2 text-sm">
+                      <span className="font-semibold text-[#6B8E7F]">{pendingInvoice.number}</span>
+                      <span className="flex-1 text-[#2A2622]">{pendingInvoice.customer_name}</span>
+                      <span className="text-[#7A6E60]">CHF {fmt(pendingInvoice.total)}</span>
+                      <button type="button" onClick={() => { setPendingInvoice(null); openDebitorModal() }} className="text-xs text-[#6B8E7F] hover:underline">Ändern</button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={openDebitorModal} className="flex items-center gap-2 text-sm text-[#6B8E7F] border border-dashed border-[#6B8E7F] rounded-xl px-4 py-2 hover:bg-[#F4EDE2]">
+                      <Plus size={14} /> Offene Rechnung auswählen
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {pendingError && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{pendingError}</p>}
+            </div>
+
+            <div className="flex gap-2 px-6 py-4 border-t border-[#E1D6C2]">
+              <button
+                onClick={() => { setPendingTransactions(prev => prev.filter(p => p.tempId !== editPending.tempId)); setEditPending(null) }}
+                className="px-4 py-2.5 rounded-xl border border-red-200 text-sm text-red-600 hover:bg-red-50"
+              >
+                Verwerfen
+              </button>
+              <div className="flex-1" />
+              <button onClick={() => setEditPending(null)} className="px-4 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC]">Abbrechen</button>
+              <button
+                onClick={completePendingBooking}
+                disabled={isPending || !pendingCreditId}
+                className="px-4 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium disabled:opacity-50"
+              >
+                {isPending ? 'Buchen…' : 'Buchen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Modal: Offene Rechnungen ──────────────────────────── */}
       {debitorModal && (
