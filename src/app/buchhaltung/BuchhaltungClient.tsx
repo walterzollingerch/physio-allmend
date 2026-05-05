@@ -601,11 +601,125 @@ function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, isHistori
   selectedFiscalYear: FiscalYear
   groups: AccountGroup[]
 }) {
+  const [hideZero, setHideZero] = useState(false)
   const totalPassivMitErgebnis = totalPassiv + ergebnis
   const ausgeglichen = Math.abs(totalAktiv - totalPassivMitErgebnis) < 0.01
 
+  function handlePrint() {
+    const pdfHideZero = hideZero
+    const pdfAktiv  = pdfHideZero ? aktiv.filter(a => a.balance !== 0)  : aktiv
+    const pdfPassiv = pdfHideZero ? passiv.filter(a => a.balance !== 0) : passiv
+    const aktivTree    = buildGroupTree(groups, pdfAktiv,  'aktiv')
+    const passivTree   = buildGroupTree(groups, pdfPassiv, 'passiv')
+    const aktivUng     = pdfAktiv.filter(a  => !a.group_id)
+    const passivUng    = pdfPassiv.filter(a => !a.group_id)
+
+    function renderNode(node: GroupNode, depth: number): string {
+      const total = subtreeTotal(node)
+      if (pdfHideZero && total === 0) return ''
+      const accs = pdfHideZero ? node.nodeAccounts.filter(a => a.balance !== 0) : node.nodeAccounts
+      const ind = depth * 10
+      const cls = depth === 0 ? 'g0' : depth === 1 ? 'g1' : 'g2'
+      let h = `<div class="${cls}" style="padding-left:${ind}px">
+        <span>${node.account_number ? `<span class="mono">${node.account_number}</span> ` : ''}${node.name}</span>
+        ${total !== 0 ? `<span class="amt">${fmt(total)}</span>` : ''}
+      </div>`
+      for (const a of accs) {
+        h += `<div class="arow" style="padding-left:${ind + 14}px">
+          <span class="mono">${a.number}</span><span class="aname">${a.name}</span>
+          <span class="amt">${fmt(a.balance)}</span></div>`
+      }
+      for (const c of node.children) h += renderNode(c, depth + 1)
+      return h
+    }
+    function renderSide(tree: GroupNode[], ung: Account[]): string {
+      let h = tree.map(n => renderNode(n, 0)).join('')
+      for (const a of ung) {
+        h += `<div class="arow"><span class="mono">${a.number}</span><span class="aname">${a.name}</span>
+          <span class="amt">${fmt(a.balance)}</span></div>`
+      }
+      return h
+    }
+
+    const fy = selectedFiscalYear
+    const ergebnisRow = ergebnis !== 0
+      ? `<div class="jerg"><span class="aname">Jahresgewinn/-verlust (laufend)</span><span class="amt">${fmt(ergebnis)}</span></div>`
+      : ''
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Bilanz – Physio Allmend</title>
+<style>
+*{box-sizing:border-box}body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:10.5px;color:#222;margin:0;padding:18px 24px}
+.doc-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:14px}
+.doc-title{font-size:17px;font-weight:700;color:#2A2622}.doc-meta{font-size:9.5px;color:#666;text-align:right}
+.bilanz{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.side-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#2A2622;padding:5px 0;border-bottom:1.5px solid #333;margin-bottom:4px;display:flex;justify-content:space-between}
+.g0{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;background:#EDE7DA;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-top:4px;padding-left:4px;padding-right:4px}
+.g1{display:flex;justify-content:space-between;align-items:baseline;padding:3px 4px;background:#F4EDE2;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.03em}
+.g2{display:flex;justify-content:space-between;align-items:baseline;padding:2px 4px;background:#F7F2EC;font-size:10px;font-weight:500}
+.arow{display:flex;align-items:baseline;padding:2px 4px;border-bottom:1px solid #f5f0e8}
+.mono{font-family:monospace;color:#7A6E60;margin-right:6px;min-width:28px;display:inline-block;font-size:9.5px}
+.aname{flex:1;color:#2A2622}.amt{font-family:monospace;font-weight:600;text-align:right;min-width:70px}
+.jerg{display:flex;align-items:baseline;padding:3px 4px;background:#F0F7F4;border-top:1px solid #C8D8D2;font-style:italic}
+.side-total{display:flex;justify-content:space-between;font-weight:700;font-size:11px;border-top:1.5px solid #333;margin-top:4px;padding-top:4px}
+.summary{margin-top:16px;border-top:2px solid #333;padding-top:10px;display:flex;justify-content:space-between;align-items:center}
+.sum-block{text-align:center}.sum-label{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#7A6E60}
+.sum-val{font-size:16px;font-weight:700;color:#2A2622}.badge{font-size:9px;padding:2px 8px;border-radius:10px;font-weight:600}
+.ok{background:#d1fae5;color:#065f46}.diff{background:#fef3c7;color:#92400e}
+@media print{body{padding:10px 14px}.bilanz{gap:14px}}
+</style></head><body>
+<div class="doc-header">
+  <div><div class="doc-title">Bilanz</div>
+  <div style="font-size:10px;color:#666;margin-top:2px">Physio Allmend · ${fy.name} · ${fmtDate(fy.start_date)} – ${fmtDate(fy.end_date)}${pdfHideZero ? ' · Nullkonten ausgeblendet' : ''}</div></div>
+  <div class="doc-meta">Erstellt: ${new Date().toLocaleDateString('de-CH')}${isHistoricalYear ? `<br>Stand per ${fmtDate(fy.end_date)}` : ''}</div>
+</div>
+<div class="bilanz">
+  <div>
+    <div class="side-title"><span>Aktivkonten</span></div>
+    ${renderSide(aktivTree, aktivUng)}
+    <div class="side-total"><span>Total Aktiva</span><span>${fmt(totalAktiv)}</span></div>
+  </div>
+  <div>
+    <div class="side-title"><span>Passivkonten</span></div>
+    ${renderSide(passivTree, passivUng)}
+    ${ergebnisRow}
+    <div class="side-total"><span>Total Passiva</span><span>${fmt(totalPassivMitErgebnis)}</span></div>
+  </div>
+</div>
+<div class="summary">
+  <div class="sum-block"><div class="sum-label">Bilanzsumme Aktiva</div><div class="sum-val">CHF ${fmt(totalAktiv)}</div></div>
+  <span class="badge ${ausgeglichen ? 'ok' : 'diff'}">${ausgeglichen ? 'Ausgeglichen' : `Differenz ${fmt(Math.abs(totalAktiv - totalPassivMitErgebnis))}`}</span>
+  <div class="sum-block"><div class="sum-label">Bilanzsumme Passiva</div><div class="sum-val">CHF ${fmt(totalPassivMitErgebnis)}</div></div>
+</div>
+</body></html>`
+
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => { win.print() }, 400)
+  }
+
   return (
     <div>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-4">
+        <label className="flex items-center gap-2 text-sm text-[#7A6E60] cursor-pointer select-none">
+          <input
+            type="checkbox" checked={hideZero} onChange={e => setHideZero(e.target.checked)}
+            className="accent-[#6B8E7F] w-4 h-4"
+          />
+          Konten mit Saldo 0 ausblenden
+        </label>
+        <button
+          onClick={handlePrint}
+          className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+        >
+          <Printer size={15} /> PDF / Drucken
+        </button>
+      </div>
+
       {isHistoricalYear && (
         <p className="text-xs text-[#7A6E60] text-right mb-4">Stand per {fmtDate(selectedFiscalYear.end_date)}</p>
       )}
@@ -614,6 +728,7 @@ function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, isHistori
           title="Aktivkonten" type="aktiv" accounts={aktiv} total={totalAktiv}
           groups={groups} allGroups={groups}
           icon={<TrendingUp size={18} className="text-blue-600" />}
+          hideZero={hideZero}
           readOnly
         />
         <AccountSide
@@ -621,6 +736,7 @@ function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, isHistori
           groups={groups} allGroups={groups}
           icon={<TrendingDown size={18} className="text-purple-600" />}
           jahresergebnis={ergebnis}
+          hideZero={hideZero}
           readOnly
         />
         <div className="lg:col-span-2 bg-white rounded-2xl border border-[#E1D6C2] p-4">
@@ -650,12 +766,135 @@ function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, sele
   selectedFiscalYear: FiscalYear
   groups: AccountGroup[]
 }) {
+  const [hideZero, setHideZero] = useState(false)
+
   // Jahresgewinn erscheint auf Aufwand-Seite (balanciert), Jahresverlust auf Ertrag-Seite
   const gewinn  = ergebnis > 0 ? ergebnis : undefined
   const verlust = ergebnis < 0 ? Math.abs(ergebnis) : undefined
 
+  function handlePrint() {
+    const pdfHideZero = hideZero
+    const pdfErtrag  = pdfHideZero ? ertrag.filter(a => a.balance !== 0)  : ertrag
+    const pdfAufwand = pdfHideZero ? aufwand.filter(a => a.balance !== 0) : aufwand
+    const ertragTree   = buildGroupTree(groups, pdfErtrag,  'ertrag')
+    const aufwandTree  = buildGroupTree(groups, pdfAufwand, 'aufwand')
+    const ertragUng    = pdfErtrag.filter(a  => !a.group_id)
+    const aufwandUng   = pdfAufwand.filter(a => !a.group_id)
+
+    function renderNode(node: GroupNode, depth: number): string {
+      const total = subtreeTotal(node)
+      if (pdfHideZero && total === 0) return ''
+      const accs = pdfHideZero ? node.nodeAccounts.filter(a => a.balance !== 0) : node.nodeAccounts
+      const ind = depth * 10
+      const cls = depth === 0 ? 'g0' : depth === 1 ? 'g1' : 'g2'
+      let h = `<div class="${cls}" style="padding-left:${ind}px">
+        <span>${node.account_number ? `<span class="mono">${node.account_number}</span> ` : ''}${node.name}</span>
+        ${total !== 0 ? `<span class="amt">${fmt(total)}</span>` : ''}
+      </div>`
+      for (const a of accs) {
+        h += `<div class="arow" style="padding-left:${ind + 14}px">
+          <span class="mono">${a.number}</span><span class="aname">${a.name}</span>
+          <span class="amt">${fmt(a.balance)}</span></div>`
+      }
+      for (const c of node.children) h += renderNode(c, depth + 1)
+      return h
+    }
+    function renderSide(tree: GroupNode[], ung: Account[]): string {
+      let h = tree.map(n => renderNode(n, 0)).join('')
+      for (const a of ung) {
+        h += `<div class="arow"><span class="mono">${a.number}</span><span class="aname">${a.name}</span>
+          <span class="amt">${fmt(a.balance)}</span></div>`
+      }
+      return h
+    }
+
+    const fy = selectedFiscalYear
+    const gewinnRow  = ergebnis > 0
+      ? `<div class="jerg"><span class="aname">Jahresgewinn (laufend)</span><span class="amt">${fmt(ergebnis)}</span></div>`
+      : ''
+    const verlustRow = ergebnis < 0
+      ? `<div class="jerg"><span class="aname">Jahresverlust (laufend)</span><span class="amt">${fmt(Math.abs(ergebnis))}</span></div>`
+      : ''
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Erfolgsrechnung – Physio Allmend</title>
+<style>
+*{box-sizing:border-box}body{font-family:'Helvetica Neue',Arial,sans-serif;font-size:10.5px;color:#222;margin:0;padding:18px 24px}
+.doc-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:14px}
+.doc-title{font-size:17px;font-weight:700;color:#2A2622}.doc-meta{font-size:9.5px;color:#666;text-align:right}
+.er{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.side-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#2A2622;padding:5px 0;border-bottom:1.5px solid #333;margin-bottom:4px;display:flex;justify-content:space-between}
+.g0{display:flex;justify-content:space-between;align-items:baseline;padding:4px 0;background:#EDE7DA;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-top:4px;padding-left:4px;padding-right:4px}
+.g1{display:flex;justify-content:space-between;align-items:baseline;padding:3px 4px;background:#F4EDE2;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.03em}
+.g2{display:flex;justify-content:space-between;align-items:baseline;padding:2px 4px;background:#F7F2EC;font-size:10px;font-weight:500}
+.arow{display:flex;align-items:baseline;padding:2px 4px;border-bottom:1px solid #f5f0e8}
+.mono{font-family:monospace;color:#7A6E60;margin-right:6px;min-width:28px;display:inline-block;font-size:9.5px}
+.aname{flex:1;color:#2A2622}.amt{font-family:monospace;font-weight:600;text-align:right;min-width:70px}
+.jerg{display:flex;align-items:baseline;padding:3px 4px;background:#F0F7F4;border-top:1px solid #C8D8D2;font-style:italic}
+.side-total{display:flex;justify-content:space-between;font-weight:700;font-size:11px;border-top:1.5px solid #333;margin-top:4px;padding-top:4px}
+.summary{margin-top:16px;border-top:2px solid #333;padding-top:10px;display:flex;justify-content:space-between;align-items:center}
+.sum-block{text-align:center}.sum-label{font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#7A6E60}
+.sum-val{font-size:15px;font-weight:700}.erg-val{font-size:18px;font-weight:800}
+.green{color:#065f46}.red{color:#b91c1c}
+@media print{body{padding:10px 14px}.er{gap:14px}}
+</style></head><body>
+<div class="doc-header">
+  <div><div class="doc-title">Erfolgsrechnung</div>
+  <div style="font-size:10px;color:#666;margin-top:2px">Physio Allmend · ${fy.name} · ${fmtDate(fy.start_date)} – ${fmtDate(fy.end_date)}${pdfHideZero ? ' · Nullkonten ausgeblendet' : ''}</div></div>
+  <div class="doc-meta">Erstellt: ${new Date().toLocaleDateString('de-CH')}</div>
+</div>
+<div class="er">
+  <div>
+    <div class="side-title"><span>Ertragskonten</span></div>
+    ${renderSide(ertragTree, ertragUng)}
+    ${verlustRow}
+    <div class="side-total"><span>Total Ertrag</span><span>${fmt(totalErtrag + (ergebnis < 0 ? Math.abs(ergebnis) : 0))}</span></div>
+  </div>
+  <div>
+    <div class="side-title"><span>Aufwandskonten</span></div>
+    ${renderSide(aufwandTree, aufwandUng)}
+    ${gewinnRow}
+    <div class="side-total"><span>Total Aufwand</span><span>${fmt(totalAufwand + (ergebnis > 0 ? ergebnis : 0))}</span></div>
+  </div>
+</div>
+<div class="summary">
+  <div class="sum-block"><div class="sum-label">Total Ertrag</div><div class="sum-val green">CHF ${fmt(totalErtrag)}</div></div>
+  <div class="sum-block">
+    <div class="sum-label">Ergebnis</div>
+    <div class="erg-val ${ergebnis >= 0 ? 'green' : 'red'}">CHF ${fmt(ergebnis)}</div>
+    <div style="font-size:9px;color:#7A6E60;margin-top:2px">${ergebnis >= 0 ? 'Jahresgewinn' : 'Jahresverlust'}</div>
+  </div>
+  <div class="sum-block"><div class="sum-label">Total Aufwand</div><div class="sum-val red">CHF ${fmt(totalAufwand)}</div></div>
+</div>
+</body></html>`
+
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    win.focus()
+    setTimeout(() => { win.print() }, 400)
+  }
+
   return (
     <div>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between mb-4">
+        <label className="flex items-center gap-2 text-sm text-[#7A6E60] cursor-pointer select-none">
+          <input
+            type="checkbox" checked={hideZero} onChange={e => setHideZero(e.target.checked)}
+            className="accent-[#6B8E7F] w-4 h-4"
+          />
+          Konten mit Saldo 0 ausblenden
+        </label>
+        <button
+          onClick={handlePrint}
+          className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+        >
+          <Printer size={15} /> PDF / Drucken
+        </button>
+      </div>
+
       <p className="text-xs text-[#7A6E60] text-right mb-4">
         Beträge aus Buchungen des Geschäftsjahrs {selectedFiscalYear.name}
       </p>
@@ -666,6 +905,7 @@ function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, sele
           icon={<TrendingUp size={18} className="text-green-600" />}
           jahresergebnis={verlust}
           jahresergebnisLabel="Jahresverlust (laufend)"
+          hideZero={hideZero}
           readOnly
         />
         <AccountSide
@@ -674,6 +914,7 @@ function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, sele
           icon={<TrendingDown size={18} className="text-red-600" />}
           jahresergebnis={gewinn}
           jahresergebnisLabel="Jahresgewinn (laufend)"
+          hideZero={hideZero}
           readOnly
         />
         <div className="lg:col-span-2 bg-white rounded-2xl border border-[#E1D6C2] p-4">
@@ -699,16 +940,18 @@ function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, sele
 }
 
 // ── Account Side (hierarchical, always read-only) ────────────
-function AccountSide({ title, type, accounts, total, groups, allGroups, icon, jahresergebnis, jahresergebnisLabel, readOnly }: {
+function AccountSide({ title, type, accounts, total, groups, allGroups, icon, jahresergebnis, jahresergebnisLabel, readOnly, hideZero }: {
   title: string; type: AccountType; accounts: Account[]; total: number
   groups: AccountGroup[]; allGroups: AccountGroup[]
   icon: React.ReactNode
   jahresergebnis?: number
   jahresergebnisLabel?: string
   readOnly?: boolean
+  hideZero?: boolean
 }) {
-  const tree = buildGroupTree(groups, accounts, type)
-  const ungrouped = accounts.filter(a => !a.group_id)
+  const visibleAccounts = hideZero ? accounts.filter(a => a.balance !== 0) : accounts
+  const tree = buildGroupTree(groups, visibleAccounts, type)
+  const ungrouped = visibleAccounts.filter(a => !a.group_id)
 
   const rowProps = {
     isAdmin: false, deleteConfirm: null, readOnly: true,
@@ -727,7 +970,7 @@ function AccountSide({ title, type, accounts, total, groups, allGroups, icon, ja
       )}
 
       {tree.map(node => (
-        <GroupNodeRow key={node.id} node={node} depth={0} rowProps={rowProps} />
+        <GroupNodeRow key={node.id} node={node} depth={0} rowProps={rowProps} hideZero={hideZero} />
       ))}
 
       {ungrouped.length > 0 && (
@@ -769,8 +1012,9 @@ function AccountSide({ title, type, accounts, total, groups, allGroups, icon, ja
 void (AccountSide as unknown as (p: { allGroups: AccountGroup[] }) => null)
 
 // ── Recursive group node renderer ────────────────────────────
-function GroupNodeRow({ node, depth, rowProps }: {
+function GroupNodeRow({ node, depth, rowProps, hideZero }: {
   node: GroupNode; depth: number
+  hideZero?: boolean
   rowProps: {
     isAdmin: boolean; deleteConfirm: string | null; readOnly: boolean
     onEdit: (a: Account) => void; onDelete: (id: string) => void
@@ -778,6 +1022,9 @@ function GroupNodeRow({ node, depth, rowProps }: {
   }
 }) {
   const total = subtreeTotal(node)
+
+  // When hideZero is active and this entire subtree is zero, skip rendering
+  if (hideZero && total === 0) return null
 
   const isKlasse = node.level === 'klasse'
   const headerCls = isKlasse
@@ -815,7 +1062,7 @@ function GroupNodeRow({ node, depth, rowProps }: {
       )}
 
       {node.children.map(child => (
-        <GroupNodeRow key={child.id} node={child} depth={depth + 1} rowProps={rowProps} />
+        <GroupNodeRow key={child.id} node={child} depth={depth + 1} rowProps={rowProps} hideZero={hideZero} />
       ))}
     </>
   )
