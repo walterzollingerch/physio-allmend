@@ -97,16 +97,16 @@ function subtreeTotal(node: GroupNode): number {
   return own + node.children.reduce((s, c) => s + subtreeTotal(c), 0)
 }
 
-// Historical balance: start from current account.balance and reverse all entries after cutoff
+// Historical balance: build from 0 using only entries up to (and including) cutoffDate
 function getBalanceAt(account: Account, allEntries: JournalEntry[], cutoffDate: string): number {
-  let bal = Number(account.balance)
+  let bal = 0
   for (const e of allEntries) {
-    if (e.date <= cutoffDate) continue
+    if (e.date > cutoffDate) continue
     const amt = Number(e.amount)
     if (e.debit_account_id === account.id)
-      bal -= (account.type === 'aktiv' || account.type === 'aufwand') ? amt : -amt
+      bal += (account.type === 'aktiv' || account.type === 'aufwand') ? amt : -amt
     if (e.credit_account_id === account.id)
-      bal -= (account.type === 'passiv' || account.type === 'ertrag') ? amt : -amt
+      bal += (account.type === 'passiv' || account.type === 'ertrag') ? amt : -amt
   }
   return bal
 }
@@ -264,8 +264,8 @@ export default function BuchhaltungClient({
           fiscalYears={fiscalYears} isAdmin={isAdmin}
           onFiscalYearsChange={setFiscalYears}
           accounts={accounts.filter(a => a.is_active)}
-          ertragAccounts={ertrag} aufwandAccounts={aufwand}
-          ergebnis={ergebnis}
+          aktivAccounts={aktiv}
+          passivAccounts={passiv}
           onAccountsChange={setAccounts}
           onJournalEntriesChange={setJournalEntries}
           supabase={supabase}
@@ -820,6 +820,12 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
                 </select>
               </Field>
             </div>
+            {formFiscalYearId && fiscalYears.find(y => y.id === formFiscalYearId)?.is_closed && (
+              <div className="sm:col-span-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-800 flex gap-2">
+                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                <span>Dieses Geschäftsjahr ist abgeschlossen. Buchungen sind nicht mehr erlaubt.</span>
+              </div>
+            )}
           </div>
           {debitId && creditId && (
             <div className="mt-3 text-xs text-[#7A6E60] bg-[#F7F2EC] rounded-lg px-3 py-2">
@@ -833,7 +839,7 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
             <button type="button" onClick={closeForm} className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors">
               Abbrechen
             </button>
-            <button type="submit" disabled={isPending} className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50">
+            <button type="submit" disabled={isPending || !!(formFiscalYearId && fiscalYears.find(y => y.id === formFiscalYearId)?.is_closed)} className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50">
               {isPending ? 'Speichern…' : isEditMode ? 'Speichern' : 'Buchen'}
             </button>
           </div>
@@ -964,135 +970,118 @@ function GruppenTab({ groups, isAdmin, supabase }: {
 }
 
 // ── Jahresabschluss Modal ────────────────────────────────────
-function JahresabschlussModal({ year, ertragAccounts, aufwandAccounts, aktivAccounts, passivAccounts, ergebnis, allAccounts, onClose, onDone, supabase }: {
+function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts, onClose, onDone, supabase }: {
   year: FiscalYear
-  ertragAccounts: Account[]
-  aufwandAccounts: Account[]
   aktivAccounts: Account[]
   passivAccounts: Account[]
-  ergebnis: number
   allAccounts: Account[]
   onClose: () => void
   onDone: (closedYear: FiscalYear, newEntries: JournalEntry[], updatedAccounts: Account[], newFiscalYear: FiscalYear | null) => void
   supabase: ReturnType<typeof createClient>
 }) {
-  const [ergebnisKontoId, setErgebnisKontoId] = useState(
-    allAccounts.find(a => a.number === '9200')?.id ?? allAccounts.find(a => a.number.startsWith('92'))?.id ?? ''
-  )
-  const [eroeffnungsKontoId, setEroeffnungsKontoId] = useState(
-    allAccounts.find(a => a.number === '2970')?.id ?? allAccounts.find(a => a.number.startsWith('2970') && !a.number.startsWith('2979'))?.id ?? ''
-  )
+  const eroeffnungsOptions = allAccounts.filter(a => a.number.startsWith('297'))
+
+  const [guvId, setGuvId]  = useState(eroeffnungsOptions[0]?.id ?? '')
   const [error, setError]  = useState<string | null>(null)
   const [isPending, start] = useTransition()
 
-  const totalErtrag  = ertragAccounts.reduce((s, a) => s + Number(a.balance), 0)
-  const totalAufwand = aufwandAccounts.reduce((s, a) => s + Number(a.balance), 0)
-  const isGewinn     = ergebnis >= 0
+  const totalAktiv  = aktivAccounts.reduce((s, a) => s + Number(a.balance), 0)
+  const totalPassiv = passivAccounts.reduce((s, a) => s + Number(a.balance), 0)
 
-  const nextStart = new Date(year.end_date); nextStart.setDate(nextStart.getDate() + 1)
-  const nextEnd   = new Date(nextStart); nextEnd.setFullYear(nextEnd.getFullYear() + 1); nextEnd.setDate(nextEnd.getDate() - 1)
+  // Compute next year dates
+  const nextStart    = new Date(year.end_date); nextStart.setDate(nextStart.getDate() + 1)
+  const nextEnd      = new Date(nextStart);     nextEnd.setFullYear(nextEnd.getFullYear() + 1); nextEnd.setDate(nextEnd.getDate() - 1)
   const nextStartStr = nextStart.toISOString().split('T')[0]
   const nextEndStr   = nextEnd.toISOString().split('T')[0]
   const nextYearNum  = nextStart.getFullYear()
 
-  const ergebnisKontoNum    = allAccounts.find(a => a.id === ergebnisKontoId)?.number    ?? '9200'
-  const eroeffnungsKontoNum = allAccounts.find(a => a.id === eroeffnungsKontoId)?.number ?? '2970'
-
   async function handleExecute() {
-    if (!ergebnisKontoId || !eroeffnungsKontoId) { setError('Bitte alle Konten auswählen.'); return }
+    if (!guvId) { setError('Bitte Eröffnungskonto wählen.'); return }
     setError(null)
     start(async () => {
       type EntryInsert = { date: string; description: string; debit_account_id: string; credit_account_id: string; amount: number; fiscal_year_id: string }
 
-      // ── 1. Abschlussbuchungen (Ertrag/Aufwand → 9200) im aktuellen Jahr ──
-      const closingEntries: EntryInsert[] = []
-      for (const a of aufwandAccounts) {
-        if (Number(a.balance) === 0) continue
-        // Soll 9200 / Haben Aufwand
-        closingEntries.push({ date: year.end_date, description: `Abschluss ${year.name}: ${a.name}`, debit_account_id: ergebnisKontoId, credit_account_id: a.id, amount: Number(a.balance), fiscal_year_id: year.id })
-      }
-      for (const a of ertragAccounts) {
-        if (Number(a.balance) === 0) continue
-        // Soll Ertrag / Haben 9200
-        closingEntries.push({ date: year.end_date, description: `Abschluss ${year.name}: ${a.name}`, debit_account_id: a.id, credit_account_id: ergebnisKontoId, amount: Number(a.balance), fiscal_year_id: year.id })
-      }
-
-      // ── 2. Neues Geschäftsjahr finden oder erstellen ──
+      // ── Find or create next fiscal year ──────────────────────
       const { data: existingNext } = await supabase.from('fiscal_years').select('*').eq('start_date', nextStartStr).maybeSingle()
-      let nextYear: FiscalYear; let createdNewYear = false
+      let nextYear: FiscalYear
+      let createdNewYear = false
       if (existingNext) {
         nextYear = existingNext as FiscalYear
       } else {
-        const { data: newYear, error: nyErr } = await supabase.from('fiscal_years')
-          .insert({ name: String(nextYearNum), start_date: nextStartStr, end_date: nextEndStr, is_closed: false }).select().single()
+        const { data: newYear, error: nyErr } = await supabase
+          .from('fiscal_years').insert({ name: String(nextYearNum), start_date: nextStartStr, end_date: nextEndStr, is_closed: false }).select().single()
         if (nyErr) { setError(nyErr.message); return }
-        nextYear = newYear as FiscalYear; createdNewYear = true
+        nextYear = newYear as FiscalYear
+        createdNewYear = true
       }
 
-      // ── 3. Saldo-Aktualisierung für Abschlussbuchungen ──
-      const ergebnisAcc  = allAccounts.find(a => a.id === ergebnisKontoId)
-      const ergebnisType = ergebnisAcc?.type ?? 'passiv'
-      // Für 9200: Soll per Aufwand → debit; Haben per Ertrag → credit
-      let ergebnisKontoDelta = 0
-      for (const a of aufwandAccounts) {
-        if (Number(a.balance) === 0) continue
-        ergebnisKontoDelta += (ergebnisType === 'aktiv' || ergebnisType === 'aufwand') ? Number(a.balance) : -Number(a.balance)
-      }
-      for (const a of ertragAccounts) {
-        if (Number(a.balance) === 0) continue
-        ergebnisKontoDelta += (ergebnisType === 'passiv' || ergebnisType === 'ertrag') ? Number(a.balance) : -Number(a.balance)
-      }
-
-      const updatedAccounts: Account[] = []
-      // Zero out Aufwand
-      for (const a of aufwandAccounts) {
-        if (Number(a.balance) === 0) continue
-        const { data: fresh } = await supabase.from('accounts').select('balance').eq('id', a.id).single()
-        const newBal = Number(fresh?.balance ?? a.balance) - Number(a.balance)
-        await supabase.from('accounts').update({ balance: newBal }).eq('id', a.id)
-        updatedAccounts.push({ ...a, balance: newBal })
-      }
-      // Zero out Ertrag
-      for (const a of ertragAccounts) {
-        if (Number(a.balance) === 0) continue
-        const { data: fresh } = await supabase.from('accounts').select('balance').eq('id', a.id).single()
-        const newBal = Number(fresh?.balance ?? a.balance) - Number(a.balance)
-        await supabase.from('accounts').update({ balance: newBal }).eq('id', a.id)
-        updatedAccounts.push({ ...a, balance: newBal })
-      }
-      // Update 9200
-      if (ergebnisKontoDelta !== 0 && ergebnisAcc) {
-        const { data: fresh } = await supabase.from('accounts').select('balance').eq('id', ergebnisKontoId).single()
-        const newBal = Number(fresh?.balance ?? ergebnisAcc.balance) + ergebnisKontoDelta
-        await supabase.from('accounts').update({ balance: newBal }).eq('id', ergebnisKontoId)
-        updatedAccounts.push({ ...ergebnisAcc, balance: newBal })
-      }
-
-      // ── 4. Eröffnungsbuchungen im neuen Jahr (nur Journaleintrag, keine Saldoänderung) ──
-      const postBal = (a: Account) => {
-        const updated = updatedAccounts.find(u => u.id === a.id)
-        return updated !== undefined ? Number(updated.balance) : Number(a.balance)
-      }
+      // ── Eröffnungsbuchungen: Aktiv → Soll Aktiv / Haben 2970 ──
       const openingEntries: EntryInsert[] = []
       for (const a of aktivAccounts) {
-        const bal = postBal(a); if (bal <= 0) continue
-        // Soll Aktiv / Haben 2970
-        openingEntries.push({ date: nextStartStr, description: `Eröffnung ${nextYear.name}: ${a.name}`, debit_account_id: a.id, credit_account_id: eroeffnungsKontoId, amount: bal, fiscal_year_id: nextYear.id })
-      }
-      for (const a of passivAccounts) {
-        const bal = postBal(a); if (bal <= 0) continue
-        // Soll 2970 / Haben Passiv
-        openingEntries.push({ date: nextStartStr, description: `Eröffnung ${nextYear.name}: ${a.name}`, debit_account_id: eroeffnungsKontoId, credit_account_id: a.id, amount: bal, fiscal_year_id: nextYear.id })
+        if (Number(a.balance) === 0) continue
+        openingEntries.push({
+          date: nextStartStr,
+          description: `Eröffnung ${nextYear.name}: ${a.name}`,
+          debit_account_id: a.id,
+          credit_account_id: guvId,
+          amount: Number(a.balance),
+          fiscal_year_id: nextYear.id,
+        })
       }
 
-      // ── 5. Alle Buchungen einfügen ──
+      // ── Eröffnungsbuchungen: Passiv → Soll 2970 / Haben Passiv ──
+      for (const a of passivAccounts) {
+        if (a.id === guvId) continue  // skip the counteraccount itself
+        if (Number(a.balance) === 0) continue
+        openingEntries.push({
+          date: nextStartStr,
+          description: `Eröffnung ${nextYear.name}: ${a.name}`,
+          debit_account_id: guvId,
+          credit_account_id: a.id,
+          amount: Number(a.balance),
+          fiscal_year_id: nextYear.id,
+        })
+      }
+
+      // ── Insert journal entries ────────────────────────────────
       const { data: created, error: err } = await supabase
         .from('journal_entries')
-        .insert([...closingEntries, ...openingEntries])
+        .insert(openingEntries)
         .select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
       if (err) { setError(err.message); return }
 
-      // ── 6. Geschäftsjahr sperren ──
+      // ── Compute balance deltas from opening entries ───────────
+      const balanceDeltas = new Map<string, number>()
+      const guvAcc = allAccounts.find(a => a.id === guvId)
+      for (const entry of openingEntries) {
+        const debitType  = allAccounts.find(a => a.id === entry.debit_account_id)?.type
+        const creditType = allAccounts.find(a => a.id === entry.credit_account_id)?.type
+        if (debitType) {
+          const d = (debitType === 'aktiv' || debitType === 'aufwand') ? entry.amount : -entry.amount
+          balanceDeltas.set(entry.debit_account_id, (balanceDeltas.get(entry.debit_account_id) ?? 0) + d)
+        }
+        if (creditType) {
+          const d = (creditType === 'passiv' || creditType === 'ertrag') ? entry.amount : -entry.amount
+          balanceDeltas.set(entry.credit_account_id, (balanceDeltas.get(entry.credit_account_id) ?? 0) + d)
+        }
+      }
+
+      // ── Zero all Aktiv/Passiv accounts then apply deltas ─────
+      const allBilanzAccounts = [...aktivAccounts, ...passivAccounts]
+      const updatedAccounts: Account[] = []
+      for (const a of allBilanzAccounts) {
+        const newBalance = balanceDeltas.get(a.id) ?? 0  // zero + delta
+        await supabase.from('accounts').update({ balance: newBalance }).eq('id', a.id)
+        updatedAccounts.push({ ...a, balance: newBalance })
+      }
+      // 2970 itself: zero + its delta (net of all opening entries)
+      if (guvAcc && !allBilanzAccounts.find(a => a.id === guvId)) {
+        const newBalance = balanceDeltas.get(guvId) ?? 0
+        await supabase.from('accounts').update({ balance: newBalance }).eq('id', guvId)
+        updatedAccounts.push({ ...guvAcc, balance: newBalance })
+      }
+
+      // ── Mark fiscal year closed ───────────────────────────────
       const { data: closedYear } = await supabase.from('fiscal_years').update({ is_closed: true }).eq('id', year.id).select().single()
       onDone(closedYear as FiscalYear, (created ?? []) as JournalEntry[], updatedAccounts, createdNewYear ? nextYear : null)
     })
@@ -1101,37 +1090,39 @@ function JahresabschlussModal({ year, ertragAccounts, aufwandAccounts, aktivAcco
   return (
     <Modal title={`Jahresabschluss: ${year.name}`} onClose={onClose}>
       <div className="space-y-5">
-        <div className="bg-[#F7F2EC] rounded-xl p-4 text-sm space-y-2">
-          <div className="flex justify-between"><span className="text-[#7A6E60]">Total Ertrag</span><span className="font-mono text-green-700">+ {fmt(totalErtrag)}</span></div>
-          <div className="flex justify-between"><span className="text-[#7A6E60]">Total Aufwand</span><span className="font-mono text-red-600">− {fmt(totalAufwand)}</span></div>
-          <div className="flex justify-between border-t border-[#E1D6C2] pt-2 font-semibold">
-            <span className="text-[#2A2622]">{isGewinn ? 'Jahresgewinn' : 'Jahresverlust'}</span>
-            <span className={`font-mono ${isGewinn ? 'text-green-700' : 'text-red-600'}`}>{fmt(Math.abs(ergebnis))}</span>
+
+        {/* Preview */}
+        <div className="bg-[#F7F2EC] rounded-xl p-4 text-sm space-y-1.5">
+          <p className="text-xs font-semibold text-[#7A6E60] uppercase tracking-wide mb-2">Eröffnungsbilanz {nextYearNum}</p>
+          <div className="flex justify-between">
+            <span className="text-[#7A6E60]">Total Aktiv (wird übertragen)</span>
+            <span className="font-mono text-[#2A2622]">{fmt(totalAktiv)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-[#7A6E60]">Total Passiv (wird übertragen)</span>
+            <span className="font-mono text-[#2A2622]">{fmt(totalPassiv)}</span>
+          </div>
+          <div className="border-t border-[#E1D6C2] pt-1.5 flex justify-between text-xs text-[#7A6E60]">
+            <span>Ertrag/Aufwand starten per 0 im neuen Jahr</span>
           </div>
         </div>
 
-        <Field label={`Jahresergebniskonto (z.B. 9200)`}>
-          <select value={ergebnisKontoId} onChange={e => setErgebnisKontoId(e.target.value)} className={inp}>
-            <option value="">— Konto wählen —</option>
-            {allAccounts.map(a => <option key={a.id} value={a.id}>{a.number} — {a.name}</option>)}
-          </select>
-        </Field>
-        <Field label={`Eröffnungsbilanzkonto (z.B. 2970)`}>
-          <select value={eroeffnungsKontoId} onChange={e => setEroeffnungsKontoId(e.target.value)} className={inp}>
-            <option value="">— Konto wählen —</option>
-            {allAccounts.map(a => <option key={a.id} value={a.id}>{a.number} — {a.name}</option>)}
+        <Field label="Eröffnungskonto (2970)">
+          <select value={guvId} onChange={e => setGuvId(e.target.value)} className={inp}>
+            {eroeffnungsOptions.map(a => <option key={a.id} value={a.id}>{a.number} — {a.name}</option>)}
           </select>
         </Field>
 
-        <div className="bg-[#F7F2EC] border border-[#E1D6C2] rounded-xl p-3 text-xs text-[#4A4138] space-y-1">
-          <p className="font-medium mb-1">Buchungsvorschau:</p>
-          <p>• <strong>GJ {year.name}</strong>: Ertrag/Aufwand → {ergebnisKontoNum} (Ertrag- und Aufwandkonten werden auf 0 gesetzt)</p>
-          <p>• <strong>GJ {nextYearNum}</strong>: Eröffnungsbuchungen aller Bilanzkonten mit Gegenkonto {eroeffnungsKontoNum}</p>
-          <p>• GJ {nextYearNum} wird automatisch eröffnet falls noch nicht vorhanden ({nextStartStr} – {nextEndStr})</p>
+        <div className="bg-[#F0F9F4] border border-[#C3E6D3] rounded-xl p-3 text-xs text-[#2A6645] space-y-1">
+          <p>• Für jedes Aktiv-Konto: <strong>Soll Konto / Haben {eroeffnungsOptions.find(a => a.id === guvId)?.number ?? '2970'}</strong></p>
+          <p>• Für jedes Passiv-Konto: <strong>Soll {eroeffnungsOptions.find(a => a.id === guvId)?.number ?? '2970'} / Haben Konto</strong></p>
+          <p>• Alle Buchungen werden dem Geschäftsjahr <strong>{nextYearNum}</strong> zugewiesen</p>
+          <p>• Geschäftsjahr {nextYearNum} wird automatisch eröffnet falls noch nicht vorhanden ({nextStartStr} – {nextEndStr})</p>
         </div>
+
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex gap-2">
           <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-          <span>GJ {year.name} wird gesperrt — keine weiteren Buchungen möglich.</span>
+          <span>Alle Konten werden auf 0 gesetzt. Die Eröffnungsbuchungen stellen die Bilanzwerte im neuen Jahr wieder her. Das Geschäftsjahr {year.name} wird als abgeschlossen markiert.</span>
         </div>
 
         {error && <p className="text-red-600 text-xs">{error}</p>}
@@ -1139,7 +1130,7 @@ function JahresabschlussModal({ year, ertragAccounts, aufwandAccounts, aktivAcco
         <div className="flex gap-3 justify-end pt-1">
           <button onClick={onClose} className="text-sm text-[#7A6E60] hover:text-[#2A2622] px-4 py-2">Abbrechen</button>
           <button
-            onClick={handleExecute} disabled={isPending || !ergebnisKontoId || !eroeffnungsKontoId}
+            onClick={handleExecute} disabled={isPending || !guvId}
             className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] disabled:opacity-50 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
           >
             <ClipboardCheck size={15} /> {isPending ? 'Wird ausgeführt…' : 'Abschluss durchführen'}
@@ -1151,13 +1142,12 @@ function JahresabschlussModal({ year, ertragAccounts, aufwandAccounts, aktivAcco
 }
 
 // ── Geschäftsjahre Tab ───────────────────────────────────────
-function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, accounts, ertragAccounts, aufwandAccounts, ergebnis, onAccountsChange, onJournalEntriesChange, supabase }: {
+function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, accounts, aktivAccounts, passivAccounts, onAccountsChange, onJournalEntriesChange, supabase }: {
   fiscalYears: FiscalYear[]; isAdmin: boolean
   onFiscalYearsChange: React.Dispatch<React.SetStateAction<FiscalYear[]>>
   accounts: Account[]
-  ertragAccounts: Account[]
-  aufwandAccounts: Account[]
-  ergebnis: number
+  aktivAccounts: Account[]
+  passivAccounts: Account[]
   onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
   onJournalEntriesChange: React.Dispatch<React.SetStateAction<JournalEntry[]>>
   supabase: ReturnType<typeof createClient>
@@ -1295,11 +1285,8 @@ function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, accounts, ertragA
       {abschlussYear && (
         <JahresabschlussModal
           year={abschlussYear}
-          ertragAccounts={ertragAccounts}
-          aufwandAccounts={aufwandAccounts}
-          aktivAccounts={accounts.filter(a => a.type === 'aktiv' && a.is_active)}
-          passivAccounts={accounts.filter(a => a.type === 'passiv' && a.is_active)}
-          ergebnis={ergebnis}
+          aktivAccounts={aktivAccounts}
+          passivAccounts={passivAccounts}
           allAccounts={accounts}
           onClose={() => setAbschlussYear(null)}
           onDone={handleAbschlussDone}
