@@ -268,6 +268,7 @@ export default function BuchhaltungClient({
               accounts={accounts.filter(a => a.is_active)}
               aktivAccounts={aktiv}
               passivAccounts={passiv}
+              journalEntries={journalEntries}
               onAccountsChange={setAccounts}
               onJournalEntriesChange={setJournalEntries}
               supabase={supabase}
@@ -1049,11 +1050,12 @@ function GruppenTab({ groups, isAdmin, supabase }: {
 }
 
 // ── Jahresabschluss Modal ────────────────────────────────────
-function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts, onClose, onDone, supabase }: {
+function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts, journalEntries, onClose, onDone, supabase }: {
   year: FiscalYear
   aktivAccounts: Account[]
   passivAccounts: Account[]
   allAccounts: Account[]
+  journalEntries: JournalEntry[]
   onClose: () => void
   onDone: (closedYear: FiscalYear, newEntries: JournalEntry[], updatedAccounts: Account[], newFiscalYear: FiscalYear | null) => void
   supabase: ReturnType<typeof createClient>
@@ -1064,8 +1066,12 @@ function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts
   const [error, setError]  = useState<string | null>(null)
   const [isPending, start] = useTransition()
 
-  const totalAktiv  = aktivAccounts.reduce((s, a) => s + Number(a.balance), 0)
-  const totalPassiv = passivAccounts.reduce((s, a) => s + Number(a.balance), 0)
+  // Salden des abzuschliessenden Jahres aus Buchungen berechnen (nie aus account.balance cache)
+  const yearEntries = journalEntries.filter(e => e.fiscal_year_id === year.id)
+  const closingBalances = computePeriodBalances([...aktivAccounts, ...passivAccounts], yearEntries)
+
+  const totalAktiv  = aktivAccounts.reduce((s, a) => s + (closingBalances.get(a.id) ?? 0), 0)
+  const totalPassiv = passivAccounts.reduce((s, a) => s + (closingBalances.get(a.id) ?? 0), 0)
 
   // Compute next year dates
   const nextStart    = new Date(year.end_date); nextStart.setDate(nextStart.getDate() + 1)
@@ -1097,7 +1103,7 @@ function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts
       // ── Eröffnungsbuchungen: Aktiv → Soll Aktiv / Haben 2970 ──
       const openingEntries: EntryInsert[] = []
       for (const a of aktivAccounts) {
-        const bal = Number(a.balance)
+        const bal = closingBalances.get(a.id) ?? 0
         if (Math.abs(bal) < 0.005) continue
         const amt = Math.abs(bal)
         openingEntries.push({
@@ -1113,7 +1119,7 @@ function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts
       // ── Eröffnungsbuchungen: Passiv → Soll 2970 / Haben Passiv ──
       for (const a of passivAccounts) {
         if (a.id === guvId) continue
-        const bal = Number(a.balance)
+        const bal = closingBalances.get(a.id) ?? 0
         if (Math.abs(bal) < 0.005) continue
         const amt = Math.abs(bal)
         openingEntries.push({
@@ -1224,12 +1230,13 @@ function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts
 }
 
 // ── Geschäftsjahre Tab ───────────────────────────────────────
-function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, accounts, aktivAccounts, passivAccounts, onAccountsChange, onJournalEntriesChange, supabase }: {
+function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, accounts, aktivAccounts, passivAccounts, journalEntries, onAccountsChange, onJournalEntriesChange, supabase }: {
   fiscalYears: FiscalYear[]; isAdmin: boolean
   onFiscalYearsChange: React.Dispatch<React.SetStateAction<FiscalYear[]>>
   accounts: Account[]
   aktivAccounts: Account[]
   passivAccounts: Account[]
+  journalEntries: JournalEntry[]
   onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
   onJournalEntriesChange: React.Dispatch<React.SetStateAction<JournalEntry[]>>
   supabase: ReturnType<typeof createClient>
@@ -1370,6 +1377,7 @@ function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, accounts, aktivAc
           aktivAccounts={aktivAccounts}
           passivAccounts={passivAccounts}
           allAccounts={accounts}
+          journalEntries={journalEntries}
           onClose={() => setAbschlussYear(null)}
           onDone={handleAbschlussDone}
           supabase={supabase}
