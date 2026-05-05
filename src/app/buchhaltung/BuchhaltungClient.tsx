@@ -55,6 +55,17 @@ interface JournalEntry {
   fiscal_year?: { id: string; name: string } | null
 }
 
+interface InvoiceForPayment {
+  id: string
+  number: string
+  customer_name: string
+  invoice_date: string
+  due_date: string | null
+  total: number
+  discount_type: string
+  discount_value: number
+}
+
 interface GroupNode extends AccountGroup {
   children: GroupNode[]
   nodeAccounts: Account[]
@@ -1378,6 +1389,17 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
   const [creditId, setCreditId] = useState('')
   const [amount, setAmount]     = useState('')
 
+  // Debitor-Verknüpfung
+  const [linkDebitor, setLinkDebitor]               = useState(false)
+  const [debitorModal, setDebitorModal]             = useState(false)
+  const [openInvoices, setOpenInvoices]             = useState<InvoiceForPayment[]>([])
+  const [invoiceSearch, setInvoiceSearch]           = useState('')
+  const [loadingInvoices, setLoadingInvoices]       = useState(false)
+  const [selectedInvoice, setSelectedInvoice]       = useState<InvoiceForPayment | null>(null)
+  const [discountDialog, setDiscountDialog]         = useState(false)
+  const [discountAccountId, setDiscountAccountId]   = useState('')
+  const [pendingDiscountAmt, setPendingDiscountAmt] = useState(0)
+
   const isEditMode = editingEntry !== null
 
   function openNew() {
@@ -1398,6 +1420,36 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
 
   function closeForm() {
     setShowForm(false); setEditingEntry(null); setError(null)
+    setLinkDebitor(false); setSelectedInvoice(null); setDiscountDialog(false)
+    setDiscountAccountId(''); setPendingDiscountAmt(0)
+  }
+
+  async function openDebitorModal() {
+    setInvoiceSearch('')
+    setDebitorModal(true)
+    setLoadingInvoices(true)
+    const { data } = await supabase
+      .from('invoices')
+      .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, invoice_items(unit_price, quantity)')
+      .eq('status', 'gesendet')
+      .order('number', { ascending: false })
+    const list: InvoiceForPayment[] = (data ?? []).map((inv: {
+      id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null
+      discount_type: string; discount_value: number
+      invoice_items: { unit_price: number; quantity: number }[]
+    }) => {
+      const subtotal = (inv.invoice_items ?? []).reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
+      const disc = inv.discount_type === 'percent' ? subtotal * Number(inv.discount_value) / 100 : Number(inv.discount_value)
+      return { id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc, discount_type: inv.discount_type, discount_value: inv.discount_value }
+    })
+    setOpenInvoices(list)
+    setLoadingInvoices(false)
+  }
+
+  function selectInvoice(inv: InvoiceForPayment) {
+    setSelectedInvoice(inv)
+    if (!amount || parseFloat(amount) === 0) setAmount(String(inv.total.toFixed(2)))
+    setDebitorModal(false)
   }
 
   // Helper: apply balance delta to an account in DB and local state
@@ -1413,90 +1465,161 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     return (type === 'passiv' || type === 'ertrag') ? amount : -amount
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  function validateForm(): { amt: number; debitAcc: Account; creditAcc: Account } | null {
     const amt = parseFloat(amount)
-    if (!amt || amt <= 0) { setError('Betrag muss grösser als 0 sein'); return }
-    if (debitId === creditId) { setError('Soll- und Habenkonto dürfen nicht identisch sein'); return }
-    if (selectedFiscalYearClosed) { setError('Auf ein abgeschlossenes Geschäftsjahr kann nicht gebucht werden.'); return }
+    if (!amt || amt <= 0) { setError('Betrag muss grösser als 0 sein'); return null }
+    if (debitId === creditId) { setError('Soll- und Habenkonto dürfen nicht identisch sein'); return null }
+    if (selectedFiscalYearClosed) { setError('Auf ein abgeschlossenes Geschäftsjahr kann nicht gebucht werden.'); return null }
     if (selectedFiscalYear) {
       if (date < selectedFiscalYear.start_date || date > selectedFiscalYear.end_date) {
         setError(`Buchungsdatum muss innerhalb des Geschäftsjahres liegen (${fmtDate(selectedFiscalYear.start_date)} – ${fmtDate(selectedFiscalYear.end_date)}).`)
+        return null
+      }
+    }
+    const debitAcc  = accounts.find(a => a.id === debitId)
+    const creditAcc = accounts.find(a => a.id === creditId)
+    if (!debitAcc || !creditAcc) { setError('Konten nicht gefunden'); return null }
+    return { amt, debitAcc, creditAcc }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const validated = validateForm()
+    if (!validated) return
+    const { amt } = validated
+
+    // Debitor-Verknüpfung: Differenz prüfen → Skonto-Dialog
+    if (linkDebitor && selectedInvoice) {
+      const diff = +(selectedInvoice.total - amt).toFixed(2)
+      if (Math.abs(diff) > 0.004) {
+        setPendingDiscountAmt(diff)
+        setDiscountDialog(true)
         return
       }
     }
 
-    const debitAcc  = accounts.find(a => a.id === debitId)
-    const creditAcc = accounts.find(a => a.id === creditId)
-    if (!debitAcc || !creditAcc) { setError('Konten nicht gefunden'); return }
-
     setError(null)
     start(async () => {
-      if (isEditMode && editingEntry) {
-        // ── Edit: reverse old entry, apply new ──────────────────
-        const oldDebitAcc  = accounts.find(a => a.id === editingEntry.debit_account_id)
-        const oldCreditAcc = accounts.find(a => a.id === editingEntry.credit_account_id)
-        const oldAmt = Number(editingEntry.amount)
+      await performBooking()
+    })
+  }
 
-        // Accumulate net deltas per account (handle same account appearing in old & new)
-        const deltas = new Map<string, number>()
-        const add = (id: string, d: number) => deltas.set(id, (deltas.get(id) ?? 0) + d)
+  async function confirmDiscount() {
+    if (!discountAccountId) { setError('Bitte Skonto-/Rabattkonto wählen'); return }
+    setError(null)
+    setDiscountDialog(false)
+    start(async () => {
+      await performBooking({ discountAccountId, discountAmount: pendingDiscountAmt })
+    })
+  }
 
-        // Reverse old
-        if (oldDebitAcc)  add(editingEntry.debit_account_id,  -balanceDelta(oldDebitAcc.type,  true,  oldAmt))
-        if (oldCreditAcc) add(editingEntry.credit_account_id, -balanceDelta(oldCreditAcc.type, false, oldAmt))
-        // Apply new
-        add(debitId,  balanceDelta(debitAcc.type,  true,  amt))
-        add(creditId, balanceDelta(creditAcc.type, false, amt))
+  async function performBooking(discount?: { discountAccountId: string; discountAmount: number }) {
+    const validated = validateForm()
+    if (!validated) return
+    const { amt, debitAcc, creditAcc } = validated
 
-        // Update DB balances and collect new values
-        const newBalances: Record<string, number> = {}
-        for (const [accountId, delta] of deltas.entries()) {
-          if (delta === 0) continue
-          const r = await applyDelta(accountId, delta, accounts)
-          newBalances[r.id] = r.newBalance
-        }
+    const JE_SELECT = '*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)'
 
-        // Update journal entry
-        const { data: updatedRows, error: err } = await supabase
-          .from('journal_entries')
-          .update({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: selectedFiscalYearId })
-          .eq('id', editingEntry.id)
-          .select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
-        if (err) { setError(err.message); return }
-        const updated = Array.isArray(updatedRows) ? updatedRows[0] : updatedRows
-        if (!updated) { setError('Buchung nicht gefunden'); return }
+    if (isEditMode && editingEntry) {
+      // ── Edit: reverse old entry, apply new ──────────────────
+      const oldDebitAcc  = accounts.find(a => a.id === editingEntry.debit_account_id)
+      const oldCreditAcc = accounts.find(a => a.id === editingEntry.credit_account_id)
+      const oldAmt = Number(editingEntry.amount)
 
-        onJournalEntriesChange(prev => prev.map(e => e.id === editingEntry.id ? updated as JournalEntry : e))
-        onAccountsChange(prev => prev.map(a => a.id in newBalances ? { ...a, balance: newBalances[a.id] } : a))
-      } else {
-        // ── New entry ────────────────────────────────────────────
-        const { data: insertedRows, error: err } = await supabase
-          .from('journal_entries')
-          .insert({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: selectedFiscalYearId })
-          .select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
-        if (err) { setError(err.message); return }
-        const entry = Array.isArray(insertedRows) ? insertedRows[0] : insertedRows
-        if (!entry) { setError('Buchung konnte nicht gespeichert werden'); return }
+      const deltas = new Map<string, number>()
+      const add = (id: string, d: number) => deltas.set(id, (deltas.get(id) ?? 0) + d)
+      if (oldDebitAcc)  add(editingEntry.debit_account_id,  -balanceDelta(oldDebitAcc.type,  true,  oldAmt))
+      if (oldCreditAcc) add(editingEntry.credit_account_id, -balanceDelta(oldCreditAcc.type, false, oldAmt))
+      add(debitId,  balanceDelta(debitAcc.type,  true,  amt))
+      add(creditId, balanceDelta(creditAcc.type, false, amt))
 
-        const debitDelta  = balanceDelta(debitAcc.type,  true,  amt)
-        const creditDelta = balanceDelta(creditAcc.type, false, amt)
-
-        await Promise.all([
-          supabase.from('accounts').update({ balance: Number(debitAcc.balance)  + debitDelta  }).eq('id', debitId),
-          supabase.from('accounts').update({ balance: Number(creditAcc.balance) + creditDelta }).eq('id', creditId),
-        ])
-
-        onJournalEntriesChange(prev => [entry as JournalEntry, ...prev])
-        onAccountsChange(prev => prev.map(a => {
-          if (a.id === debitId)  return { ...a, balance: Number(a.balance) + debitDelta }
-          if (a.id === creditId) return { ...a, balance: Number(a.balance) + creditDelta }
-          return a
-        }))
+      const newBalances: Record<string, number> = {}
+      for (const [accountId, delta] of deltas.entries()) {
+        if (delta === 0) continue
+        const r = await applyDelta(accountId, delta, accounts)
+        newBalances[r.id] = r.newBalance
       }
 
-      closeForm()
-    })
+      const { data: updatedRows, error: err } = await supabase
+        .from('journal_entries')
+        .update({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: selectedFiscalYearId })
+        .eq('id', editingEntry.id)
+        .select(JE_SELECT)
+      if (err) { setError(err.message); return }
+      const updated = Array.isArray(updatedRows) ? updatedRows[0] : updatedRows
+      if (!updated) { setError('Buchung nicht gefunden'); return }
+
+      onJournalEntriesChange(prev => prev.map(e => e.id === editingEntry.id ? updated as JournalEntry : e))
+      onAccountsChange(prev => prev.map(a => a.id in newBalances ? { ...a, balance: newBalances[a.id] } : a))
+
+    } else {
+      // ── New entry ────────────────────────────────────────────
+      const mainEntry = {
+        date, description,
+        debit_account_id: debitId,
+        credit_account_id: creditId,
+        amount: amt,
+        fiscal_year_id: selectedFiscalYearId,
+        ...(linkDebitor && selectedInvoice ? { invoice_id: selectedInvoice.id } : {}),
+      }
+
+      const { data: insertedRows, error: err } = await supabase
+        .from('journal_entries').insert(mainEntry).select(JE_SELECT)
+      if (err) { setError(err.message); return }
+      const entry = Array.isArray(insertedRows) ? insertedRows[0] : insertedRows
+      if (!entry) { setError('Buchung konnte nicht gespeichert werden'); return }
+
+      const debitDelta  = balanceDelta(debitAcc.type,  true,  amt)
+      const creditDelta = balanceDelta(creditAcc.type, false, amt)
+
+      const r1 = await applyDelta(debitId,  debitDelta,  accounts)
+      const r2 = await applyDelta(creditId, creditDelta, accounts)
+
+      const newBals: Record<string, number> = { [r1.id]: r1.newBalance, [r2.id]: r2.newBalance }
+      onJournalEntriesChange(prev => [entry as JournalEntry, ...prev])
+      onAccountsChange(prev => prev.map(a => a.id in newBals ? { ...a, balance: newBals[a.id] } : a))
+
+      // ── Debitor: Skonto-Buchung + Rechnung abschliessen ──────
+      if (linkDebitor && selectedInvoice) {
+        if (discount && discount.discountAmount > 0) {
+          const discAcc = accounts.find(a => a.id === discount.discountAccountId)
+          if (discAcc) {
+            const discEntry = {
+              date,
+              description: `Skonto ${selectedInvoice.number}`,
+              debit_account_id:  discount.discountAccountId,
+              credit_account_id: creditId,
+              amount: discount.discountAmount,
+              fiscal_year_id: selectedFiscalYearId,
+              invoice_id: selectedInvoice.id,
+            }
+            const { data: discRows } = await supabase.from('journal_entries').insert(discEntry).select(JE_SELECT)
+            const discEntry0 = Array.isArray(discRows) ? discRows[0] : discRows
+            if (discEntry0) onJournalEntriesChange(prev => [discEntry0 as JournalEntry, ...prev])
+
+            const discDebitDelta  = balanceDelta(discAcc.type, true,  discount.discountAmount)
+            const discCreditDelta = balanceDelta(creditAcc.type, false, discount.discountAmount)
+            const d1 = await applyDelta(discount.discountAccountId, discDebitDelta,  accounts)
+            const d2 = await applyDelta(creditId,                   discCreditDelta, accounts)
+            onAccountsChange(prev => prev.map(a => {
+              if (a.id === d1.id) return { ...a, balance: d1.newBalance }
+              if (a.id === d2.id) return { ...a, balance: d2.newBalance }
+              return a
+            }))
+
+            // Rabatt auf Rechnung eintragen
+            const existingDisc = selectedInvoice.discount_type === 'amount' ? Number(selectedInvoice.discount_value) : 0
+            await supabase.from('invoices')
+              .update({ discount_type: 'amount', discount_value: existingDisc + discount.discountAmount })
+              .eq('id', selectedInvoice.id)
+          }
+        }
+        // Rechnung auf bezahlt stellen
+        await supabase.from('invoices').update({ status: 'bezahlt' }).eq('id', selectedInvoice.id)
+      }
+    }
+
+    closeForm()
   }
 
   async function handleDelete(entry: JournalEntry) {
@@ -1588,6 +1711,44 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
                 <input value={description} onChange={e => setDesc(e.target.value)} required placeholder="z.B. Mieteinnahme Januar" className={inp} />
               </Field>
             </div>
+            {/* Debitor-Verknüpfung */}
+            {!isEditMode && (
+              <div className="sm:col-span-2">
+                <label className="flex items-center gap-2 text-sm text-[#7A6E60] cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={linkDebitor}
+                    onChange={e => { setLinkDebitor(e.target.checked); if (!e.target.checked) setSelectedInvoice(null) }}
+                    className="rounded border-[#E1D6C2] accent-[#6B8E7F]"
+                  />
+                  Mit Debitor verknüpfen (offene Rechnung zuweisen)
+                </label>
+                {linkDebitor && (
+                  <div className="mt-2">
+                    {selectedInvoice ? (
+                      <div className="flex items-center gap-3 bg-[#F4EDE2] rounded-xl px-4 py-2.5 text-sm">
+                        <div className="flex-1">
+                          <span className="font-semibold text-[#2A2622]">{selectedInvoice.number}</span>
+                          <span className="text-[#4A4138] ml-2">{selectedInvoice.customer_name}</span>
+                          <span className="text-[#7A6E60] ml-3">CHF {fmt(selectedInvoice.total)}</span>
+                          <span className="text-xs text-[#7A6E60] ml-3">{fmtDate(selectedInvoice.invoice_date)}</span>
+                        </div>
+                        <button type="button" onClick={openDebitorModal} className="text-xs text-[#6B8E7F] hover:underline shrink-0">Ändern</button>
+                        <button type="button" onClick={() => setSelectedInvoice(null)} className="text-[#7A6E60] hover:text-red-500"><X size={14} /></button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={openDebitorModal}
+                        className="flex items-center gap-2 text-sm text-[#6B8E7F] border border-dashed border-[#6B8E7F] rounded-xl px-4 py-2 hover:bg-[#F4EDE2] transition-colors"
+                      >
+                        <Plus size={14} /> Offene Rechnung auswählen
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {error && <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
           <div className="flex gap-3 mt-4">
@@ -1662,6 +1823,132 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
           </table>
         )}
       </div>
+
+      {/* ── Modal: Offene Rechnungen ──────────────────────────── */}
+      {debitorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg flex flex-col" style={{ maxHeight: '80vh' }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E1D6C2] shrink-0">
+              <h2 className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>Offene Rechnung auswählen</h2>
+              <button onClick={() => setDebitorModal(false)} className="text-[#7A6E60] hover:text-[#2A2622]"><X size={18} /></button>
+            </div>
+            <div className="px-4 py-3 border-b border-[#E1D6C2] shrink-0">
+              <input
+                type="text"
+                value={invoiceSearch}
+                onChange={e => setInvoiceSearch(e.target.value)}
+                placeholder="Suche nach Nummer oder Kunde…"
+                className={inp}
+                autoFocus
+              />
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {loadingInvoices ? (
+                <p className="text-sm text-[#7A6E60] text-center py-10">Laden…</p>
+              ) : openInvoices.length === 0 ? (
+                <p className="text-sm text-[#7A6E60] text-center py-10">Keine offenen Rechnungen</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-[#F7F2EC]">
+                    <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2]">
+                      <th className="text-left px-4 py-2">Nr.</th>
+                      <th className="text-left py-2">Kunde</th>
+                      <th className="text-right py-2 pr-4">Total (CHF)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {openInvoices
+                      .filter(inv =>
+                        !invoiceSearch.trim() ||
+                        inv.number.toLowerCase().includes(invoiceSearch.toLowerCase()) ||
+                        inv.customer_name.toLowerCase().includes(invoiceSearch.toLowerCase())
+                      )
+                      .map(inv => (
+                        <tr
+                          key={inv.id}
+                          onClick={() => selectInvoice(inv)}
+                          className="border-b border-[#F7F2EC] hover:bg-[#F4EDE2] cursor-pointer transition-colors"
+                        >
+                          <td className="px-4 py-2.5 font-mono font-semibold text-[#6B8E7F]">{inv.number}</td>
+                          <td className="py-2.5 pr-3">
+                            <p className="font-medium text-[#2A2622]">{inv.customer_name}</p>
+                            <p className="text-xs text-[#7A6E60]">{fmtDate(inv.invoice_date)}{inv.due_date ? ` · Fällig ${fmtDate(inv.due_date)}` : ''}</p>
+                          </td>
+                          <td className="py-2.5 pr-4 text-right font-semibold text-[#2A2622]">{fmt(inv.total)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Skonto / Differenz ──────────────────────────── */}
+      {discountDialog && selectedInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E1D6C2]">
+              <h2 className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>Differenz als Skonto buchen?</h2>
+              <button onClick={() => setDiscountDialog(false)} className="text-[#7A6E60] hover:text-[#2A2622]"><X size={18} /></button>
+            </div>
+
+            <div className="px-6 py-5 space-y-3">
+              <div className="bg-[#F7F2EC] rounded-xl px-4 py-3 text-sm space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-[#7A6E60]">Rechnungsbetrag ({selectedInvoice.number})</span>
+                  <span className="font-semibold text-[#2A2622]">CHF {fmt(selectedInvoice.total)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#7A6E60]">Zahlungsbetrag</span>
+                  <span className="font-semibold text-[#2A2622]">CHF {fmt(parseFloat(amount) || 0)}</span>
+                </div>
+                <div className="flex justify-between border-t border-[#E1D6C2] pt-1.5">
+                  <span className="text-[#7A6E60]">Differenz (Skonto)</span>
+                  <span className="font-semibold text-amber-700">CHF {fmt(pendingDiscountAmt)}</span>
+                </div>
+              </div>
+
+              <p className="text-sm text-[#4A4138]">
+                Soll die Differenz von <strong>CHF {fmt(pendingDiscountAmt)}</strong> als Skonto/Rabatt gebucht werden?
+                Die Rechnung wird danach auf <span className="font-medium text-green-700">Bezahlt</span> gestellt.
+              </p>
+
+              <div>
+                <label className="block text-xs font-medium text-[#7A6E60] mb-1">Skonto-/Rabattkonto *</label>
+                <AccountCombobox
+                  label=""
+                  accounts={sortedAccounts}
+                  value={discountAccountId}
+                  onChange={setDiscountAccountId}
+                  amount={String(pendingDiscountAmt)}
+                  isSoll={true}
+                  periodBalMap={periodBalMap}
+                />
+              </div>
+
+              {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            </div>
+
+            <div className="flex gap-2 px-6 py-4 border-t border-[#E1D6C2]">
+              <button
+                onClick={() => setDiscountDialog(false)}
+                className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors"
+              >
+                Zurück
+              </button>
+              <button
+                onClick={confirmDiscount}
+                disabled={isPending || !discountAccountId}
+                className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {isPending ? 'Buchen…' : 'Skonto buchen & Rechnung schliessen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
