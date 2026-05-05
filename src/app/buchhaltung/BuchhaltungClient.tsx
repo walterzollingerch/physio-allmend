@@ -128,7 +128,7 @@ export default function BuchhaltungClient({
   isAdmin: boolean
 }) {
   const [accounts, setAccounts]             = useState<Account[]>(initialAccounts)
-  const [groups]                            = useState<AccountGroup[]>(initialGroups)
+  const [groups, setGroups]                 = useState<AccountGroup[]>(initialGroups)
   const [fiscalYears, setFiscalYears]       = useState<FiscalYear[]>(initialFiscalYears)
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(initialJournalEntries)
   const [tab, setTab] = useState<'bilanz' | 'erfolg' | 'buchungen' | 'kontoübersicht'>('bilanz')
@@ -268,7 +268,7 @@ export default function BuchhaltungClient({
             />
           )}
           {adminTab === 'gruppen' && (
-            <GruppenTab groups={groups} isAdmin={isAdmin} supabase={supabase} />
+            <GruppenTab groups={groups} isAdmin={isAdmin} supabase={supabase} onGroupsChange={setGroups} />
           )}
           {adminTab === 'jahre' && (
             <JahreTab
@@ -1569,45 +1569,305 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
 }
 
 // ── Kontengruppen Tab ────────────────────────────────────────
-function GruppenTab({ groups, isAdmin, supabase }: {
-  groups: AccountGroup[]; isAdmin: boolean; supabase: ReturnType<typeof createClient>
+type GruppenForm = {
+  name: string
+  type: AccountType
+  account_number: string
+  level: 'klasse' | 'gruppe' | ''
+  parent_id: string
+  sort_order: string
+  description: string
+}
+
+const EMPTY_GRUPPEN_FORM: GruppenForm = {
+  name: '', type: 'aktiv', account_number: '', level: '', parent_id: '', sort_order: '0', description: ''
+}
+
+function GruppenTab({ groups, isAdmin, supabase, onGroupsChange }: {
+  groups: AccountGroup[]
+  isAdmin: boolean
+  supabase: ReturnType<typeof createClient>
+  onGroupsChange: (groups: AccountGroup[]) => void
 }) {
+  const [modal, setModal]           = useState<null | 'new' | string>(null) // null | 'new' | group.id
+  const [form, setForm]             = useState<GruppenForm>(EMPTY_GRUPPEN_FORM)
+  const [deleteId, setDeleteId]     = useState<string | null>(null)
+  const [error, setError]           = useState<string | null>(null)
+  const [isPending, start]          = useTransition()
+
+  function openNew() {
+    setForm(EMPTY_GRUPPEN_FORM)
+    setError(null)
+    setModal('new')
+  }
+
+  function openEdit(g: AccountGroup) {
+    setForm({
+      name:           g.name,
+      type:           g.type,
+      account_number: g.account_number ?? '',
+      level:          g.level ?? '',
+      parent_id:      g.parent_id ?? '',
+      sort_order:     String(g.sort_order),
+      description:    g.description ?? '',
+    })
+    setError(null)
+    setModal(g.id)
+  }
+
+  function closeModal() { setModal(null); setError(null) }
+
+  function field(key: keyof GruppenForm) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm(f => ({ ...f, [key]: e.target.value }))
+  }
+
+  async function handleSave() {
+    if (!form.name.trim()) { setError('Name ist erforderlich.'); return }
+    setError(null)
+    start(async () => {
+      const payload = {
+        name:           form.name.trim(),
+        type:           form.type,
+        account_number: form.account_number.trim() || null,
+        level:          (form.level || null) as 'klasse' | 'gruppe' | null,
+        parent_id:      form.parent_id || null,
+        sort_order:     Number(form.sort_order) || 0,
+        description:    form.description.trim() || null,
+      }
+
+      if (modal === 'new') {
+        const { data, error: err } = await supabase
+          .from('account_groups').insert(payload).select().single()
+        if (err) { setError(err.message); return }
+        onGroupsChange([...groups, data as AccountGroup])
+      } else {
+        const { data, error: err } = await supabase
+          .from('account_groups').update(payload).eq('id', modal!).select().single()
+        if (err) { setError(err.message); return }
+        onGroupsChange(groups.map(g => g.id === modal ? data as AccountGroup : g))
+      }
+      closeModal()
+    })
+  }
+
+  async function handleDelete(id: string) {
+    setError(null)
+    start(async () => {
+      const { error: err } = await supabase.from('account_groups').delete().eq('id', id)
+      if (err) { setError(err.message); setDeleteId(null); return }
+      onGroupsChange(groups.filter(g => g.id !== id))
+      setDeleteId(null)
+    })
+  }
+
   const byType = (['aktiv', 'passiv', 'ertrag', 'aufwand'] as AccountType[]).map(type => ({
     type, items: groups.filter(g => g.type === type).sort((a, b) => a.sort_order - b.sort_order || (a.account_number ?? '').localeCompare(b.account_number ?? ''))
   }))
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-      {byType.map(({ type, items }) => (
-        <div key={type} className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
-          <div className="px-5 py-3 border-b border-[#E1D6C2] flex items-center justify-between">
-            <span className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>{TYPE_LABELS[type]}</span>
-            <span className="text-xs text-[#7A6E60]">{items.length} Gruppe{items.length !== 1 ? 'n' : ''}</span>
-          </div>
-          {items.length === 0 ? (
-            <p className="text-sm text-[#7A6E60] text-center py-6">Keine Gruppen</p>
-          ) : (
-            <ul>
-              {items.map(g => (
-                <li key={g.id} className="flex items-center justify-between px-5 py-2.5 border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6]">
-                  <div className="flex items-center gap-2">
-                    {g.account_number && (
-                      <span className="font-mono text-xs text-[#7A6E60] w-8">{g.account_number}</span>
-                    )}
-                    <div>
-                      <p className="font-medium text-[#2A2622] text-sm">{g.name}</p>
-                      {g.level && (
-                        <p className="text-xs text-[#7A6E60] capitalize">{g.level}</p>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+    <>
+      {/* Toolbar */}
+      {isAdmin && (
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm text-[#7A6E60]">{groups.length} Kontengruppen</p>
+          <button
+            onClick={openNew}
+            className="flex items-center gap-1.5 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Plus size={15} /> Neue Gruppe
+          </button>
         </div>
-      ))}
-    </div>
+      )}
+
+      {error && !modal && (
+        <p className="text-red-600 text-sm mb-3 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{error}</p>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        {byType.map(({ type, items }) => (
+          <div key={type} className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
+            <div className="px-5 py-3 border-b border-[#E1D6C2] flex items-center justify-between">
+              <span className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>{TYPE_LABELS[type]}</span>
+              <span className="text-xs text-[#7A6E60]">{items.length} Gruppe{items.length !== 1 ? 'n' : ''}</span>
+            </div>
+            {items.length === 0 ? (
+              <p className="text-sm text-[#7A6E60] text-center py-6">Keine Gruppen</p>
+            ) : (
+              <ul>
+                {items.map(g => (
+                  <li key={g.id} className="flex items-center justify-between px-5 py-2.5 border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] group">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {g.account_number && (
+                        <span className="font-mono text-xs text-[#7A6E60] w-10 shrink-0">{g.account_number}</span>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium text-[#2A2622] text-sm truncate">{g.name}</p>
+                        <div className="flex items-center gap-2">
+                          {g.level && <p className="text-xs text-[#7A6E60] capitalize">{g.level}</p>}
+                          {g.parent_id && (
+                            <p className="text-xs text-[#7A6E60]">↳ {groups.find(p => p.id === g.parent_id)?.name ?? '—'}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {isAdmin && (
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        <button
+                          onClick={() => openEdit(g)}
+                          className="p-1 rounded text-[#7A6E60] hover:text-[#2A2622] hover:bg-[#F4EDE2] transition-colors"
+                          title="Bearbeiten"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => setDeleteId(g.id)}
+                          className="p-1 rounded text-[#7A6E60] hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title="Löschen"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Edit / New Modal */}
+      {modal !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E1D6C2]">
+              <h2 className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
+                {modal === 'new' ? 'Neue Kontengruppe' : 'Gruppe bearbeiten'}
+              </h2>
+              <button onClick={closeModal} className="text-[#7A6E60] hover:text-[#2A2622]"><X size={18} /></button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              {/* Name */}
+              <div>
+                <label className="block text-xs font-medium text-[#7A6E60] mb-1">Name *</label>
+                <input
+                  value={form.name} onChange={field('name')}
+                  className="w-full border border-[#E1D6C2] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6B8E7F]"
+                  placeholder="z. B. Umlaufvermögen"
+                />
+              </div>
+
+              {/* Type + Level */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[#7A6E60] mb-1">Typ *</label>
+                  <select value={form.type} onChange={field('type')} className="w-full border border-[#E1D6C2] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6B8E7F]">
+                    <option value="aktiv">Aktiv</option>
+                    <option value="passiv">Passiv</option>
+                    <option value="ertrag">Ertrag</option>
+                    <option value="aufwand">Aufwand</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#7A6E60] mb-1">Level</label>
+                  <select value={form.level} onChange={field('level')} className="w-full border border-[#E1D6C2] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6B8E7F]">
+                    <option value="">—</option>
+                    <option value="klasse">Klasse</option>
+                    <option value="gruppe">Gruppe</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Account number + Sort order */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[#7A6E60] mb-1">Kontonummer</label>
+                  <input
+                    value={form.account_number} onChange={field('account_number')}
+                    className="w-full border border-[#E1D6C2] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#6B8E7F]"
+                    placeholder="z. B. 10"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#7A6E60] mb-1">Reihenfolge</label>
+                  <input
+                    type="number" value={form.sort_order} onChange={field('sort_order')}
+                    className="w-full border border-[#E1D6C2] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6B8E7F]"
+                  />
+                </div>
+              </div>
+
+              {/* Parent group */}
+              <div>
+                <label className="block text-xs font-medium text-[#7A6E60] mb-1">Übergeordnete Gruppe</label>
+                <select value={form.parent_id} onChange={field('parent_id')} className="w-full border border-[#E1D6C2] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6B8E7F]">
+                  <option value="">— Keine —</option>
+                  {groups
+                    .filter(g => modal === 'new' || g.id !== modal)
+                    .sort((a, b) => (a.account_number ?? '').localeCompare(b.account_number ?? '') || a.name.localeCompare(b.name))
+                    .map(g => (
+                      <option key={g.id} value={g.id}>
+                        {g.account_number ? `${g.account_number} – ` : ''}{g.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-xs font-medium text-[#7A6E60] mb-1">Beschreibung</label>
+                <textarea
+                  value={form.description} onChange={field('description')} rows={2}
+                  className="w-full border border-[#E1D6C2] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6B8E7F] resize-none"
+                  placeholder="Optional"
+                />
+              </div>
+
+              {error && <p className="text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
+            </div>
+
+            <div className="flex justify-end gap-2 px-6 py-4 border-t border-[#E1D6C2]">
+              <button onClick={closeModal} className="px-4 py-2 text-sm text-[#7A6E60] hover:text-[#2A2622] transition-colors">
+                Abbrechen
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={isPending}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                <Check size={14} /> {isPending ? 'Speichern…' : 'Speichern'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {deleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <h2 className="font-semibold text-[#2A2622] mb-2" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>Gruppe löschen?</h2>
+            <p className="text-sm text-[#7A6E60] mb-5">
+              <strong className="text-[#2A2622]">{groups.find(g => g.id === deleteId)?.name}</strong> wird permanent gelöscht.
+              Konten dieser Gruppe werden <em>nicht</em> gelöscht.
+            </p>
+            {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setDeleteId(null)} className="px-4 py-2 text-sm text-[#7A6E60] hover:text-[#2A2622]">Abbrechen</button>
+              <button
+                onClick={() => handleDelete(deleteId)}
+                disabled={isPending}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50"
+              >
+                <Trash2 size={14} /> {isPending ? 'Löschen…' : 'Löschen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
