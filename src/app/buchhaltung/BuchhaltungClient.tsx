@@ -163,15 +163,15 @@ export default function BuchhaltungClient({
   const periodErgebnis = periodErtragAccounts.reduce((s, a) => s + a.balance, 0)
                        - periodAufwandAccounts.reduce((s, a) => s + a.balance, 0)
 
-  // Bilanz: historische Salden für abgeschlossene Jahre rekonstruieren
+  // Bilanz: Salden immer aus Buchungen berechnen (nie aus account.balance cache)
+  // → konsistent egal ob Buchungen direkt in DB gelöscht wurden
   const selectedFiscalYear = fiscalYears.find(y => y.id === selectedFiscalYearId)
   const isHistoricalYear   = selectedFiscalYear?.is_closed === true
-  const bilanzAktiv  = isHistoricalYear && selectedFiscalYear
-    ? aktiv.map(a => ({ ...a, balance: getBalanceAt(a, journalEntries, selectedFiscalYear.end_date) }))
-    : aktiv
-  const bilanzPassiv = isHistoricalYear && selectedFiscalYear
-    ? passiv.map(a => ({ ...a, balance: getBalanceAt(a, journalEntries, selectedFiscalYear.end_date) }))
-    : passiv
+  const bilanzCutoff = selectedFiscalYear
+    ? (isHistoricalYear ? selectedFiscalYear.end_date : new Date().toISOString().split('T')[0])
+    : new Date().toISOString().split('T')[0]
+  const bilanzAktiv  = aktiv.map(a => ({ ...a, balance: getBalanceAt(a, journalEntries, bilanzCutoff) }))
+  const bilanzPassiv = passiv.map(a => ({ ...a, balance: getBalanceAt(a, journalEntries, bilanzCutoff) }))
   const bilanzTotalAktiv  = bilanzAktiv.reduce((s, a) => s + Number(a.balance), 0)
   const bilanzTotalPassiv = bilanzPassiv.reduce((s, a) => s + Number(a.balance), 0)
 
