@@ -161,9 +161,9 @@ export default function BuchhaltungClient({
   const periodErgebnis = periodErtragAccounts.reduce((s, a) => s + a.balance, 0)
                        - periodAufwandAccounts.reduce((s, a) => s + a.balance, 0)
 
-  // Computed balances from ALL journal entries for admin KontenTab (never stale)
-  const allBalances = computePeriodBalances(accounts, journalEntries)
-  const accountsWithComputedBalance = accounts.map(a => ({ ...a, balance: allBalances.get(a.id) ?? 0 }))
+  // KontenTab: Saldo aus Buchungen des gewählten Geschäftsjahrs (inkl. inaktive Konten)
+  const allAccountPeriodBalances = computePeriodBalances(accounts, periodEntries)
+  const accountsWithComputedBalance = accounts.map(a => ({ ...a, balance: allAccountPeriodBalances.get(a.id) ?? 0 }))
 
   return (
     <div className="space-y-6">
