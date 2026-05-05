@@ -103,7 +103,7 @@ function Nav() {
 
   async function handleSignOut() {
     await supabase.auth.signOut()
-    setAuth({ status: 'guest' })
+    window.location.href = '/'
   }
 
   const links = [

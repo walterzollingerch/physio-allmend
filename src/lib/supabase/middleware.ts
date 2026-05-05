@@ -39,8 +39,13 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Eingeloggt auf Auth-Seite → Dashboard
-  if (user && isAuthPage && !url.pathname.startsWith('/auth/reset-password')) {
+  // Eingeloggt auf Auth-Seite → Dashboard (aber nicht signout-Route blockieren)
+  if (
+    user &&
+    isAuthPage &&
+    !url.pathname.startsWith('/auth/reset-password') &&
+    url.pathname !== '/auth/signout'
+  ) {
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
   }

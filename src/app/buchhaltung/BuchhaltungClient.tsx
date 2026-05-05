@@ -64,6 +64,7 @@ interface InvoiceForPayment {
   total: number
   discount_type: string
   discount_value: number
+  reference: string | null
 }
 
 interface PendingTransaction {
@@ -1530,17 +1531,17 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     setLoadingInvoices(true)
     const { data } = await supabase
       .from('invoices')
-      .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, invoice_items(unit_price, quantity)')
+      .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
       .eq('status', 'gesendet')
       .order('number', { ascending: false })
     const list: InvoiceForPayment[] = (data ?? []).map((inv: {
       id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null
-      discount_type: string; discount_value: number
+      discount_type: string; discount_value: number; reference: string | null
       invoice_items: { unit_price: number; quantity: number }[]
     }) => {
       const subtotal = (inv.invoice_items ?? []).reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
       const disc = inv.discount_type === 'percent' ? subtotal * Number(inv.discount_value) / 100 : Number(inv.discount_value)
-      return { id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc, discount_type: inv.discount_type, discount_value: inv.discount_value }
+      return { id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc, discount_type: inv.discount_type, discount_value: inv.discount_value, reference: inv.reference ?? null }
     })
     setOpenInvoices(list)
     setLoadingInvoices(false)
@@ -1572,16 +1573,16 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     // Fetch open invoices for matching
     const { data: invData } = await supabase
       .from('invoices')
-      .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, invoice_items(unit_price, quantity)')
+      .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
       .eq('status', 'gesendet')
     const openInvList: InvoiceForPayment[] = (invData ?? []).map((inv: {
       id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null
-      discount_type: string; discount_value: number
+      discount_type: string; discount_value: number; reference: string | null
       invoice_items: { unit_price: number; quantity: number }[]
     }) => {
       const sub = (inv.invoice_items ?? []).reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
       const disc = inv.discount_type === 'percent' ? sub * Number(inv.discount_value) / 100 : Number(inv.discount_value)
-      return { ...inv, total: sub - disc } as InvoiceForPayment
+      return { ...inv, total: sub - disc, reference: inv.reference ?? null } as InvoiceForPayment
     })
 
     const bankAcc = accounts.find(a => a.id === importBankAccId)
@@ -2381,7 +2382,10 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
                           <td className="px-4 py-2.5 font-mono font-semibold text-[#6B8E7F]">{inv.number}</td>
                           <td className="py-2.5 pr-3">
                             <p className="font-medium text-[#2A2622]">{inv.customer_name}</p>
-                            <p className="text-xs text-[#7A6E60]">{fmtDate(inv.invoice_date)}{inv.due_date ? ` · Fällig ${fmtDate(inv.due_date)}` : ''}</p>
+                            <p className="text-xs text-[#7A6E60]">
+                              {fmtDate(inv.invoice_date)}{inv.due_date ? ` · Fällig ${fmtDate(inv.due_date)}` : ''}
+                              {inv.reference && <span className="ml-2 font-mono text-[#6B8E7F]">{inv.reference}</span>}
+                            </p>
                           </td>
                           <td className="py-2.5 pr-4 text-right font-semibold text-[#2A2622]">{fmt(inv.total)}</td>
                         </tr>
