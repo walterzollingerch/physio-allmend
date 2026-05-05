@@ -7,5 +7,6 @@ export async function POST(request: NextRequest) {
 
   // Redirect relativ zur aktuellen Host-URL (funktioniert lokal + Produktion)
   const origin = request.nextUrl.origin
-  return NextResponse.redirect(new URL('/auth/login', origin))
+  // 303 See Other → Browser macht GET auf /auth/login (nicht erneut POST)
+  return NextResponse.redirect(new URL('/auth/login', origin), { status: 303 })
 }
