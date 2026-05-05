@@ -97,19 +97,6 @@ function subtreeTotal(node: GroupNode): number {
   return own + node.children.reduce((s, c) => s + subtreeTotal(c), 0)
 }
 
-// Historical balance: build from 0 using only entries up to (and including) cutoffDate
-function getBalanceAt(account: Account, allEntries: JournalEntry[], cutoffDate: string): number {
-  let bal = 0
-  for (const e of allEntries) {
-    if (e.date > cutoffDate) continue
-    const amt = Number(e.amount)
-    if (e.debit_account_id === account.id)
-      bal += (account.type === 'aktiv' || account.type === 'aufwand') ? amt : -amt
-    if (e.credit_account_id === account.id)
-      bal += (account.type === 'passiv' || account.type === 'ertrag') ? amt : -amt
-  }
-  return bal
-}
 
 function computePeriodBalances(accounts: Account[], entries: JournalEntry[]): Map<string, number> {
   const map = new Map<string, number>(accounts.map(a => [a.id, 0]))
@@ -156,24 +143,23 @@ export default function BuchhaltungClient({
   const ertrag  = accounts.filter(a => a.type === 'ertrag'  && a.is_active)
   const aufwand = accounts.filter(a => a.type === 'aufwand' && a.is_active)
 
+  const selectedFiscalYear = fiscalYears.find(y => y.id === selectedFiscalYearId)
+  const isHistoricalYear   = selectedFiscalYear?.is_closed === true
+
+  // Alle Salden aus den gefilterten Buchungen des Geschäftsjahres berechnen
+  // → reagiert auf Jahreswechsel und ist konsistent nach direkten DB-Änderungen
   const periodEntries = journalEntries.filter(e => e.fiscal_year_id === selectedFiscalYearId)
-  const periodBalances = computePeriodBalances([...ertrag, ...aufwand], periodEntries)
+  const periodBalances = computePeriodBalances([...aktiv, ...passiv, ...ertrag, ...aufwand], periodEntries)
+
+  const bilanzAktiv  = aktiv.map(a => ({ ...a, balance: periodBalances.get(a.id) ?? 0 }))
+  const bilanzPassiv = passiv.map(a => ({ ...a, balance: periodBalances.get(a.id) ?? 0 }))
+  const bilanzTotalAktiv  = bilanzAktiv.reduce((s, a) => s + Number(a.balance), 0)
+  const bilanzTotalPassiv = bilanzPassiv.reduce((s, a) => s + Number(a.balance), 0)
+
   const periodErtragAccounts  = ertrag.map(a => ({ ...a, balance: periodBalances.get(a.id) ?? 0 }))
   const periodAufwandAccounts = aufwand.map(a => ({ ...a, balance: periodBalances.get(a.id) ?? 0 }))
   const periodErgebnis = periodErtragAccounts.reduce((s, a) => s + a.balance, 0)
                        - periodAufwandAccounts.reduce((s, a) => s + a.balance, 0)
-
-  // Bilanz: Salden immer aus Buchungen berechnen (nie aus account.balance cache)
-  // → konsistent egal ob Buchungen direkt in DB gelöscht wurden
-  const selectedFiscalYear = fiscalYears.find(y => y.id === selectedFiscalYearId)
-  const isHistoricalYear   = selectedFiscalYear?.is_closed === true
-  const bilanzCutoff = selectedFiscalYear
-    ? (isHistoricalYear ? selectedFiscalYear.end_date : new Date().toISOString().split('T')[0])
-    : new Date().toISOString().split('T')[0]
-  const bilanzAktiv  = aktiv.map(a => ({ ...a, balance: getBalanceAt(a, journalEntries, bilanzCutoff) }))
-  const bilanzPassiv = passiv.map(a => ({ ...a, balance: getBalanceAt(a, journalEntries, bilanzCutoff) }))
-  const bilanzTotalAktiv  = bilanzAktiv.reduce((s, a) => s + Number(a.balance), 0)
-  const bilanzTotalPassiv = bilanzPassiv.reduce((s, a) => s + Number(a.balance), 0)
 
   return (
     <div className="space-y-6">
@@ -242,6 +228,7 @@ export default function BuchhaltungClient({
               journalEntries={journalEntries.filter(e => e.fiscal_year_id === selectedFiscalYearId)}
               selectedFiscalYearId={selectedFiscalYearId}
               selectedFiscalYearClosed={isHistoricalYear}
+              selectedFiscalYear={selectedFiscalYear ?? null}
               onJournalEntriesChange={setJournalEntries}
               onAccountsChange={setAccounts}
               supabase={supabase}
@@ -682,11 +669,12 @@ function KontenTab({ accounts, groups, onAccountsChange, supabase }: {
 }
 
 // ── Buchungen Tab ────────────────────────────────────────────
-function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selectedFiscalYearClosed, onJournalEntriesChange, onAccountsChange, supabase }: {
+function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selectedFiscalYearClosed, selectedFiscalYear, onJournalEntriesChange, onAccountsChange, supabase }: {
   accounts: Account[]
   journalEntries: JournalEntry[]
   selectedFiscalYearId: string
   selectedFiscalYearClosed: boolean
+  selectedFiscalYear: FiscalYear | null
   onJournalEntriesChange: React.Dispatch<React.SetStateAction<JournalEntry[]>>
   onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
   supabase: ReturnType<typeof createClient>
@@ -698,7 +686,15 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
   const [isPending, start]              = useTransition()
 
   const today = new Date().toISOString().slice(0, 10)
-  const [date, setDate]         = useState(today)
+
+  // Default date for new entries: today if within fiscal year, otherwise fiscal year start
+  function defaultDate() {
+    if (!selectedFiscalYear) return today
+    if (today >= selectedFiscalYear.start_date && today <= selectedFiscalYear.end_date) return today
+    return selectedFiscalYear.start_date
+  }
+
+  const [date, setDate]         = useState(defaultDate)
   const [description, setDesc]  = useState('')
   const [debitId, setDebitId]   = useState('')
   const [creditId, setCreditId] = useState('')
@@ -708,7 +704,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
 
   function openNew() {
     setEditingEntry(null)
-    setDate(today); setDesc(''); setDebitId(''); setCreditId(''); setAmount('')
+    setDate(defaultDate()); setDesc(''); setDebitId(''); setCreditId(''); setAmount('')
     setError(null); setShowForm(true)
   }
 
@@ -745,6 +741,12 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     if (!amt || amt <= 0) { setError('Betrag muss grösser als 0 sein'); return }
     if (debitId === creditId) { setError('Soll- und Habenkonto dürfen nicht identisch sein'); return }
     if (selectedFiscalYearClosed) { setError('Auf ein abgeschlossenes Geschäftsjahr kann nicht gebucht werden.'); return }
+    if (selectedFiscalYear) {
+      if (date < selectedFiscalYear.start_date || date > selectedFiscalYear.end_date) {
+        setError(`Buchungsdatum muss innerhalb des Geschäftsjahres liegen (${fmtDate(selectedFiscalYear.start_date)} – ${fmtDate(selectedFiscalYear.end_date)}).`)
+        return
+      }
+    }
 
     const debitAcc  = accounts.find(a => a.id === debitId)
     const creditAcc = accounts.find(a => a.id === creditId)
@@ -868,8 +870,16 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Datum *">
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} required className={inp} />
+            <Field label="Buchungsdatum *">
+              <input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                required
+                min={selectedFiscalYear?.start_date}
+                max={selectedFiscalYear?.end_date}
+                className={inp}
+              />
             </Field>
             <Field label="Betrag (CHF) *">
               <input type="number" step="0.01" min="0.01" value={amount} onChange={e => setAmount(e.target.value)} required placeholder="0.00" className={inp} />
