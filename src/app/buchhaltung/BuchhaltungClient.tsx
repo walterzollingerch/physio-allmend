@@ -161,6 +161,10 @@ export default function BuchhaltungClient({
   const periodErgebnis = periodErtragAccounts.reduce((s, a) => s + a.balance, 0)
                        - periodAufwandAccounts.reduce((s, a) => s + a.balance, 0)
 
+  // Computed balances from ALL journal entries for admin KontenTab (never stale)
+  const allBalances = computePeriodBalances(accounts, journalEntries)
+  const accountsWithComputedBalance = accounts.map(a => ({ ...a, balance: allBalances.get(a.id) ?? 0 }))
+
   return (
     <div className="space-y-6">
       {/* ── Geschäftsjahr-Selector ── */}
@@ -248,7 +252,7 @@ export default function BuchhaltungClient({
           </div>
           {adminTab === 'konten' && (
             <KontenTab
-              accounts={accounts}
+              accounts={accountsWithComputedBalance}
               groups={groups}
               onAccountsChange={setAccounts}
               supabase={supabase}
@@ -326,26 +330,36 @@ function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, isHistori
 }
 
 // ── Erfolgsrechnung Tab ──────────────────────────────────────
-function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, selectedFiscalYear: _selectedFiscalYear, groups }: {
+function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, selectedFiscalYear, groups }: {
   ertrag: Account[]; aufwand: Account[]
   totalErtrag: number; totalAufwand: number; ergebnis: number
   selectedFiscalYear: FiscalYear
   groups: AccountGroup[]
 }) {
+  // Jahresgewinn erscheint auf Aufwand-Seite (balanciert), Jahresverlust auf Ertrag-Seite
+  const gewinn  = ergebnis > 0 ? ergebnis : undefined
+  const verlust = ergebnis < 0 ? Math.abs(ergebnis) : undefined
+
   return (
     <div>
-      <p className="text-xs text-[#7A6E60] text-right mb-4">Beträge aus Buchungen des gewählten Geschäftsjahrs</p>
+      <p className="text-xs text-[#7A6E60] text-right mb-4">
+        Beträge aus Buchungen des Geschäftsjahrs {selectedFiscalYear.name}
+      </p>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AccountSide
           title="Ertragskonten" type="ertrag" accounts={ertrag} total={totalErtrag}
           groups={groups} allGroups={groups}
           icon={<TrendingUp size={18} className="text-green-600" />}
+          jahresergebnis={verlust}
+          jahresergebnisLabel="Jahresverlust (laufend)"
           readOnly
         />
         <AccountSide
           title="Aufwandskonten" type="aufwand" accounts={aufwand} total={totalAufwand}
           groups={groups} allGroups={groups}
           icon={<TrendingDown size={18} className="text-red-600" />}
+          jahresergebnis={gewinn}
+          jahresergebnisLabel="Jahresgewinn (laufend)"
           readOnly
         />
         <div className="lg:col-span-2 bg-white rounded-2xl border border-[#E1D6C2] p-4">
@@ -357,7 +371,7 @@ function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, sele
             <div className="text-center px-4">
               <p className="text-xs text-[#7A6E60] uppercase tracking-wide">Ergebnis</p>
               <p className={`text-2xl font-bold ${ergebnis >= 0 ? 'text-green-700' : 'text-red-600'}`}>CHF {fmt(ergebnis)}</p>
-              <p className="text-xs text-[#7A6E60] mt-0.5">{ergebnis >= 0 ? 'Gewinn' : 'Verlust'}</p>
+              <p className="text-xs text-[#7A6E60] mt-0.5">{ergebnis >= 0 ? 'Jahresgewinn' : 'Jahresverlust'}</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-[#7A6E60] uppercase tracking-wide">Total Aufwand</p>
@@ -371,11 +385,12 @@ function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, sele
 }
 
 // ── Account Side (hierarchical, always read-only) ────────────
-function AccountSide({ title, type, accounts, total, groups, allGroups, icon, jahresergebnis, readOnly }: {
+function AccountSide({ title, type, accounts, total, groups, allGroups, icon, jahresergebnis, jahresergebnisLabel, readOnly }: {
   title: string; type: AccountType; accounts: Account[]; total: number
   groups: AccountGroup[]; allGroups: AccountGroup[]
   icon: React.ReactNode
   jahresergebnis?: number
+  jahresergebnisLabel?: string
   readOnly?: boolean
 }) {
   const tree = buildGroupTree(groups, accounts, type)
@@ -412,13 +427,13 @@ function AccountSide({ title, type, accounts, total, groups, allGroups, icon, ja
         </div>
       )}
 
-      {/* Virtuelles Jahresergebnis (nur auf Passiv-Seite) */}
+      {/* Virtuelles Jahresergebnis (Passiv-Seite Bilanz / Aufwand-Seite Erfolgsrechnung) */}
       {jahresergebnis !== undefined && jahresergebnis !== 0 && (
         <div className="border-t border-[#E1D6C2]">
           <div className="px-5 py-1.5 bg-[#F4EDE2] border-b border-[#E1D6C2]">
             <div className="flex items-center justify-between pl-4">
               <span className="text-xs font-semibold text-[#4A4138] uppercase tracking-wide">
-                Jahresergebnis (laufend)
+                {jahresergebnisLabel ?? 'Jahresergebnis (laufend)'}
               </span>
               <span className={`font-mono text-xs font-semibold ${jahresergebnis >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                 {fmt(jahresergebnis)}
