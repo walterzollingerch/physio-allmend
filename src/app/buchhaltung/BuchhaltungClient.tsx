@@ -796,24 +796,26 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         }
 
         // Update journal entry
-        const { data: updated, error: err } = await supabase
+        const { data: updatedRows, error: err } = await supabase
           .from('journal_entries')
           .update({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: selectedFiscalYearId })
           .eq('id', editingEntry.id)
           .select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
-          .single()
         if (err) { setError(err.message); return }
+        const updated = Array.isArray(updatedRows) ? updatedRows[0] : updatedRows
+        if (!updated) { setError('Buchung nicht gefunden'); return }
 
         onJournalEntriesChange(prev => prev.map(e => e.id === editingEntry.id ? updated as JournalEntry : e))
         onAccountsChange(prev => prev.map(a => a.id in newBalances ? { ...a, balance: newBalances[a.id] } : a))
       } else {
         // ── New entry ────────────────────────────────────────────
-        const { data: entry, error: err } = await supabase
+        const { data: insertedRows, error: err } = await supabase
           .from('journal_entries')
           .insert({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: selectedFiscalYearId })
           .select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
-          .single()
         if (err) { setError(err.message); return }
+        const entry = Array.isArray(insertedRows) ? insertedRows[0] : insertedRows
+        if (!entry) { setError('Buchung konnte nicht gespeichert werden'); return }
 
         const debitDelta  = balanceDelta(debitAcc.type,  true,  amt)
         const creditDelta = balanceDelta(creditAcc.type, false, amt)
