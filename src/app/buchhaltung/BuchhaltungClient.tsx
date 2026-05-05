@@ -210,7 +210,7 @@ export default function BuchhaltungClient({
             <BilanzTab
               aktiv={bilanzAktiv} passiv={bilanzPassiv}
               totalAktiv={bilanzTotalAktiv} totalPassiv={bilanzTotalPassiv}
-              ergebnis={isHistoricalYear ? 0 : periodErgebnis}
+              ergebnis={periodErgebnis}
               isHistoricalYear={isHistoricalYear}
               selectedFiscalYear={selectedFiscalYear!}
               groups={groups}
