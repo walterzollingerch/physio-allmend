@@ -33,11 +33,26 @@ function LoginForm() {
     setError('')
     setLoading(true)
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       setError('E-Mail oder Passwort ist falsch.')
-    } else {
+      setLoading(false)
+      return
+    }
+
+    // Rolle prüfen: Patienten bleiben auf der Website
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', data.user.id)
+      .single()
+
+    if (profile?.role === 'admin' || profile?.role === 'physio') {
       router.push('/dashboard')
+      router.refresh()
+    } else {
+      // Patient → zurück zur Startseite
+      router.push('/')
       router.refresh()
     }
     setLoading(false)

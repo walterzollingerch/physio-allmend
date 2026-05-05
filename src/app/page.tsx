@@ -1,7 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import PhysioLogo, { Wordmark } from '@/components/PhysioLogo'
+import { createClient } from '@/lib/supabase/client'
 
 // ─── Data ──────────────────────────────────────────────────────────────────
 
@@ -65,8 +67,45 @@ function Heading({ children, className = '' }: { children: React.ReactNode; clas
 
 // ─── Nav ────────────────────────────────────────────────────────────────────
 
+type AuthState =
+  | { status: 'loading' }
+  | { status: 'guest' }
+  | { status: 'patient'; name: string }
+  | { status: 'staff' }   // admin or physio → Dashboard
+
 function Nav() {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen]       = useState(false)
+  const [auth, setAuth]       = useState<AuthState>({ status: 'loading' })
+  const router                = useRouter()
+  const supabase              = createClient()
+
+  useEffect(() => {
+    async function loadAuth() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setAuth({ status: 'guest' }); return }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, full_name')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile) { setAuth({ status: 'guest' }); return }
+
+      if (profile.role === 'admin' || profile.role === 'physio') {
+        setAuth({ status: 'staff' })
+      } else {
+        setAuth({ status: 'patient', name: profile.full_name ?? user.email ?? 'Patient' })
+      }
+    }
+    loadAuth()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleSignOut() {
+    await supabase.auth.signOut()
+    setAuth({ status: 'guest' })
+  }
+
   const links = [
     ['#ueber', 'Über mich'],
     ['#leistungen', 'Leistungen'],
@@ -75,6 +114,7 @@ function Nav() {
     ['#anfahrt', 'Anfahrt'],
     ['#kontakt', 'Kontakt'],
   ]
+
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-[#E1D6C2]">
       <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-4">
@@ -84,15 +124,52 @@ function Nav() {
             <a key={href} href={href} className="text-sm text-[#4A4138] hover:text-[#6B8E7F] transition-colors">{label}</a>
           ))}
         </nav>
+
         <div className="ml-auto flex items-center gap-2">
-          <Link href="/auth/login"
-            className="text-sm text-[#4A4138] hover:text-[#2A2622] transition-colors px-3 py-1.5">
-            Anmelden
-          </Link>
-          <a href="#kontakt"
-            className="text-sm bg-[#6B8E7F] text-white px-4 py-1.5 rounded-lg hover:bg-[#4F7163] transition-colors font-medium">
+          {/* ── Rechts-Bereich je nach Auth-Status ── */}
+          {auth.status === 'loading' && (
+            <div className="w-24 h-8 bg-[#F4EDE2] rounded-lg animate-pulse" />
+          )}
+
+          {auth.status === 'guest' && (
+            <Link
+              href="/auth/login"
+              className="text-sm font-medium border border-[#6B8E7F] text-[#6B8E7F] hover:bg-[#6B8E7F] hover:text-white px-4 py-1.5 rounded-lg transition-colors"
+            >
+              Anmelden
+            </Link>
+          )}
+
+          {auth.status === 'staff' && (
+            <Link
+              href="/dashboard"
+              className="text-sm font-medium bg-[#2A2622] text-white px-4 py-1.5 rounded-lg hover:bg-[#4A4138] transition-colors"
+            >
+              Dashboard
+            </Link>
+          )}
+
+          {auth.status === 'patient' && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-[#4A4138] hidden sm:block">
+                {auth.name}
+              </span>
+              <button
+                onClick={handleSignOut}
+                className="text-xs text-[#7A6E60] border border-[#E1D6C2] px-3 py-1.5 rounded-lg hover:bg-[#F7F2EC] transition-colors"
+              >
+                Abmelden
+              </button>
+            </div>
+          )}
+
+          <a
+            href="#kontakt"
+            className="text-sm bg-[#6B8E7F] text-white px-4 py-1.5 rounded-lg hover:bg-[#4F7163] transition-colors font-medium"
+          >
             Termin anfragen
           </a>
+
           <button className="md:hidden p-1.5 text-[#4A4138]" onClick={() => setOpen(o => !o)} aria-label="Menü">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
               {open
@@ -102,6 +179,8 @@ function Nav() {
           </button>
         </div>
       </div>
+
+      {/* Mobile-Menü */}
       {open && (
         <div className="md:hidden border-t border-[#E1D6C2] bg-white px-4 pb-4">
           {links.map(([href, label]) => (
@@ -110,9 +189,24 @@ function Nav() {
               {label}
             </a>
           ))}
-          <Link href="/auth/login" className="block mt-3 text-sm font-medium text-[#4F7163]">
-            → Zum Patientenportal
-          </Link>
+          {auth.status === 'guest' && (
+            <Link href="/auth/login" className="block mt-3 text-sm font-medium text-[#4F7163]">
+              → Anmelden
+            </Link>
+          )}
+          {auth.status === 'staff' && (
+            <Link href="/dashboard" className="block mt-3 text-sm font-medium text-[#4F7163]">
+              → Dashboard
+            </Link>
+          )}
+          {auth.status === 'patient' && (
+            <div className="mt-3 flex items-center justify-between">
+              <span className="text-sm text-[#4A4138]">{auth.name}</span>
+              <button onClick={handleSignOut} className="text-sm text-[#7A6E60] hover:text-red-600">
+                Abmelden
+              </button>
+            </div>
+          )}
         </div>
       )}
     </header>
