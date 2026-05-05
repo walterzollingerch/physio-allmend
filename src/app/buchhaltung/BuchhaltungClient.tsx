@@ -129,29 +129,6 @@ function computePeriodBalances(accounts: Account[], entries: JournalEntry[]): Ma
   return map
 }
 
-// ── Geschäftsjahr-Auswahl ────────────────────────────────────
-function FiscalYearPicker({ fiscalYears, value, onChange }: {
-  fiscalYears: FiscalYear[]; value: string; onChange: (id: string) => void
-}) {
-  if (fiscalYears.length === 0) return <span className="text-xs text-[#7A6E60] italic">Kein Geschäftsjahr</span>
-  return (
-    <div className="flex items-center gap-2">
-      <CalendarRange size={14} className="text-[#7A6E60] shrink-0" />
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="text-sm border border-[#E1D6C2] rounded-lg px-2.5 py-1.5 bg-white text-[#2A2622] focus:outline-none focus:ring-1 focus:ring-[#6B8E7F]"
-      >
-        {fiscalYears.map(y => (
-          <option key={y.id} value={y.id}>
-            {y.name}{y.is_closed ? ' (Abgeschlossen)' : ''}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
-}
-
 // ── Main Component ───────────────────────────────────────────
 export default function BuchhaltungClient({
   initialAccounts, initialGroups, initialFiscalYears, initialJournalEntries, isAdmin,
@@ -166,7 +143,8 @@ export default function BuchhaltungClient({
   const [groups]                            = useState<AccountGroup[]>(initialGroups)
   const [fiscalYears, setFiscalYears]       = useState<FiscalYear[]>(initialFiscalYears)
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(initialJournalEntries)
-  const [tab, setTab] = useState<'bilanz' | 'erfolg' | 'buchungen' | 'gruppen' | 'jahre'>('bilanz')
+  const [tab, setTab] = useState<'bilanz' | 'erfolg' | 'buchungen'>('bilanz')
+  const [adminTab, setAdminTab] = useState<'konten' | 'gruppen' | 'jahre'>('konten')
   const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>(
     () => initialFiscalYears.find(y => !y.is_closed)?.id ?? initialFiscalYears[0]?.id ?? ''
   )
@@ -177,12 +155,6 @@ export default function BuchhaltungClient({
   const passiv  = accounts.filter(a => a.type === 'passiv'  && a.is_active)
   const ertrag  = accounts.filter(a => a.type === 'ertrag'  && a.is_active)
   const aufwand = accounts.filter(a => a.type === 'aufwand' && a.is_active)
-
-  const totalAktiv   = aktiv.reduce((s, a) => s + Number(a.balance), 0)
-  const totalPassiv  = passiv.reduce((s, a) => s + Number(a.balance), 0)
-  const totalErtrag  = ertrag.reduce((s, a) => s + Number(a.balance), 0)
-  const totalAufwand = aufwand.reduce((s, a) => s + Number(a.balance), 0)
-  const ergebnis     = totalErtrag - totalAufwand
 
   const periodEntries = journalEntries.filter(e => e.fiscal_year_id === selectedFiscalYearId)
   const periodBalances = computePeriodBalances([...ertrag, ...aufwand], periodEntries)
@@ -204,114 +176,147 @@ export default function BuchhaltungClient({
   const bilanzTotalPassiv = bilanzPassiv.reduce((s, a) => s + Number(a.balance), 0)
 
   return (
-    <div>
-      <div className="flex flex-wrap gap-1 mb-6 bg-white rounded-xl border border-[#E1D6C2] p-1 w-fit">
-        <TabBtn active={tab === 'bilanz'}    onClick={() => setTab('bilanz')}    icon={<Scale size={15} />}         label="Bilanz" />
-        <TabBtn active={tab === 'erfolg'}    onClick={() => setTab('erfolg')}    icon={<BookOpen size={15} />}      label="Erfolgsrechnung" />
-        <TabBtn active={tab === 'buchungen'} onClick={() => setTab('buchungen')} icon={<ReceiptText size={15} />}   label="Buchungen" />
-        <TabBtn active={tab === 'gruppen'}   onClick={() => setTab('gruppen')}   icon={<Layers size={15} />}        label="Kontengruppen" />
-        <TabBtn active={tab === 'jahre'}     onClick={() => setTab('jahre')}     icon={<CalendarRange size={15} />} label="Geschäftsjahre" />
+    <div className="space-y-6">
+      {/* ── Geschäftsjahr-Selector ── */}
+      <div className="bg-white rounded-2xl border border-[#E1D6C2] px-5 py-4 flex items-center gap-4">
+        <CalendarRange size={18} className="text-[#6B8E7F] shrink-0" />
+        <div>
+          <p className="text-xs text-[#7A6E60] uppercase tracking-wide mb-1">Geschäftsjahr</p>
+          {fiscalYears.length === 0 ? (
+            <p className="text-sm text-[#7A6E60] italic">
+              {isAdmin ? 'Kein Geschäftsjahr vorhanden — bitte im Admin-Bereich erstellen.' : 'Kein Geschäftsjahr vorhanden.'}
+            </p>
+          ) : (
+            <select
+              value={selectedFiscalYearId}
+              onChange={e => setSelectedFiscalYearId(e.target.value)}
+              className="text-base font-semibold text-[#2A2622] border-none bg-transparent focus:outline-none focus:ring-0 cursor-pointer pr-6"
+            >
+              {fiscalYears.map(y => (
+                <option key={y.id} value={y.id}>
+                  {y.name}{y.is_closed ? ' (Abgeschlossen)' : ' (Offen)'}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {selectedFiscalYear && (
+          <span className="ml-auto text-xs text-[#7A6E60]">
+            {fmtDate(selectedFiscalYear.start_date)} – {fmtDate(selectedFiscalYear.end_date)}
+          </span>
+        )}
       </div>
 
-      {tab === 'bilanz' && (
-        <BilanzTab
-          aktiv={bilanzAktiv} passiv={bilanzPassiv}
-          totalAktiv={bilanzTotalAktiv} totalPassiv={bilanzTotalPassiv}
-          ergebnis={isHistoricalYear ? 0 : periodErgebnis}
-          isHistoricalYear={isHistoricalYear}
-          fiscalYears={fiscalYears}
-          selectedFiscalYearId={selectedFiscalYearId}
-          onFiscalYearChange={setSelectedFiscalYearId}
-          groups={groups} isAdmin={isAdmin}
-          onAccountsChange={setAccounts} supabase={supabase}
-        />
+      {/* ── Haupt-Tabs ── */}
+      {fiscalYears.length > 0 && (
+        <>
+          <div className="flex flex-wrap gap-1 bg-white rounded-xl border border-[#E1D6C2] p-1 w-fit">
+            <TabBtn active={tab === 'bilanz'}    onClick={() => setTab('bilanz')}    icon={<Scale size={15} />}       label="Bilanz" />
+            <TabBtn active={tab === 'erfolg'}    onClick={() => setTab('erfolg')}    icon={<BookOpen size={15} />}    label="Erfolgsrechnung" />
+            <TabBtn active={tab === 'buchungen'} onClick={() => setTab('buchungen')} icon={<ReceiptText size={15} />} label="Buchungen" />
+          </div>
+
+          {tab === 'bilanz' && (
+            <BilanzTab
+              aktiv={bilanzAktiv} passiv={bilanzPassiv}
+              totalAktiv={bilanzTotalAktiv} totalPassiv={bilanzTotalPassiv}
+              ergebnis={isHistoricalYear ? 0 : periodErgebnis}
+              isHistoricalYear={isHistoricalYear}
+              selectedFiscalYear={selectedFiscalYear!}
+              groups={groups}
+            />
+          )}
+          {tab === 'erfolg' && (
+            <ErfolgsTab
+              ertrag={periodErtragAccounts} aufwand={periodAufwandAccounts}
+              totalErtrag={periodErtragAccounts.reduce((s, a) => s + a.balance, 0)}
+              totalAufwand={periodAufwandAccounts.reduce((s, a) => s + a.balance, 0)}
+              ergebnis={periodErgebnis}
+              selectedFiscalYear={selectedFiscalYear!}
+              groups={groups}
+            />
+          )}
+          {tab === 'buchungen' && (
+            <BuchungenTab
+              accounts={accounts.filter(a => a.is_active)}
+              journalEntries={journalEntries.filter(e => e.fiscal_year_id === selectedFiscalYearId)}
+              selectedFiscalYearId={selectedFiscalYearId}
+              selectedFiscalYearClosed={isHistoricalYear}
+              onJournalEntriesChange={setJournalEntries}
+              onAccountsChange={setAccounts}
+              supabase={supabase}
+            />
+          )}
+        </>
       )}
 
-      {tab === 'erfolg' && (
-        <ErfolgsTab
-          ertrag={periodErtragAccounts} aufwand={periodAufwandAccounts}
-          totalErtrag={periodErtragAccounts.reduce((s, a) => s + a.balance, 0)}
-          totalAufwand={periodAufwandAccounts.reduce((s, a) => s + a.balance, 0)}
-          ergebnis={periodErgebnis}
-          fiscalYears={fiscalYears}
-          selectedFiscalYearId={selectedFiscalYearId}
-          onFiscalYearChange={setSelectedFiscalYearId}
-          groups={groups} isAdmin={isAdmin}
-          onAccountsChange={setAccounts} supabase={supabase}
-        />
-      )}
-
-      {tab === 'buchungen' && (
-        <BuchungenTab
-          accounts={accounts.filter(a => a.is_active)}
-          journalEntries={journalEntries}
-          fiscalYears={fiscalYears}
-          onJournalEntriesChange={setJournalEntries}
-          onAccountsChange={setAccounts}
-          supabase={supabase}
-        />
-      )}
-
-      {tab === 'gruppen' && (
-        <GruppenTab
-          groups={groups} isAdmin={isAdmin}
-          supabase={supabase}
-        />
-      )}
-
-      {tab === 'jahre' && (
-        <JahreTab
-          fiscalYears={fiscalYears} isAdmin={isAdmin}
-          onFiscalYearsChange={setFiscalYears}
-          accounts={accounts.filter(a => a.is_active)}
-          aktivAccounts={aktiv}
-          passivAccounts={passiv}
-          onAccountsChange={setAccounts}
-          onJournalEntriesChange={setJournalEntries}
-          supabase={supabase}
-        />
+      {/* ── Admin-Bereich ── */}
+      {isAdmin && (
+        <div className="border-t border-[#E1D6C2] pt-6">
+          <p className="text-xs font-semibold text-[#7A6E60] uppercase tracking-widest mb-4">Administration</p>
+          <div className="flex flex-wrap gap-1 bg-white rounded-xl border border-[#E1D6C2] p-1 w-fit mb-6">
+            <TabBtn active={adminTab === 'konten'}  onClick={() => setAdminTab('konten')}  icon={<Layers size={15} />}        label="Konten" />
+            <TabBtn active={adminTab === 'gruppen'} onClick={() => setAdminTab('gruppen')} icon={<Layers size={15} />}        label="Kontengruppen" />
+            <TabBtn active={adminTab === 'jahre'}   onClick={() => setAdminTab('jahre')}   icon={<CalendarRange size={15} />} label="Geschäftsjahre" />
+          </div>
+          {adminTab === 'konten' && (
+            <KontenTab
+              accounts={accounts}
+              groups={groups}
+              onAccountsChange={setAccounts}
+              supabase={supabase}
+            />
+          )}
+          {adminTab === 'gruppen' && (
+            <GruppenTab groups={groups} isAdmin={isAdmin} supabase={supabase} />
+          )}
+          {adminTab === 'jahre' && (
+            <JahreTab
+              fiscalYears={fiscalYears} isAdmin={isAdmin}
+              onFiscalYearsChange={setFiscalYears}
+              accounts={accounts.filter(a => a.is_active)}
+              aktivAccounts={aktiv}
+              passivAccounts={passiv}
+              onAccountsChange={setAccounts}
+              onJournalEntriesChange={setJournalEntries}
+              supabase={supabase}
+            />
+          )}
+        </div>
       )}
     </div>
   )
 }
 
 // ── Bilanz Tab ───────────────────────────────────────────────
-function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, isHistoricalYear, fiscalYears, selectedFiscalYearId, onFiscalYearChange, groups, isAdmin, onAccountsChange, supabase }: {
+function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, isHistoricalYear, selectedFiscalYear, groups }: {
   aktiv: Account[]; passiv: Account[]
   totalAktiv: number; totalPassiv: number; ergebnis: number
   isHistoricalYear: boolean
-  fiscalYears: FiscalYear[]; selectedFiscalYearId: string
-  onFiscalYearChange: (id: string) => void
-  groups: AccountGroup[]; isAdmin: boolean
-  onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>; supabase: ReturnType<typeof createClient>
+  selectedFiscalYear: FiscalYear
+  groups: AccountGroup[]
 }) {
   const totalPassivMitErgebnis = totalPassiv + ergebnis
   const ausgeglichen = Math.abs(totalAktiv - totalPassivMitErgebnis) < 0.01
-  const selectedYear = fiscalYears.find(y => y.id === selectedFiscalYearId)
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <FiscalYearPicker fiscalYears={fiscalYears} value={selectedFiscalYearId} onChange={onFiscalYearChange} />
-        {isHistoricalYear && selectedYear && (
-          <p className="text-xs text-[#7A6E60]">Stand per {new Date(selectedYear.end_date).toLocaleDateString('de-CH')}</p>
-        )}
-      </div>
+      {isHistoricalYear && (
+        <p className="text-xs text-[#7A6E60] text-right mb-4">Stand per {fmtDate(selectedFiscalYear.end_date)}</p>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AccountSide
           title="Aktivkonten" type="aktiv" accounts={aktiv} total={totalAktiv}
-          groups={groups} isAdmin={isAdmin} allGroups={groups}
-          onAccountsChange={onAccountsChange} supabase={supabase}
+          groups={groups} allGroups={groups}
           icon={<TrendingUp size={18} className="text-blue-600" />}
-          readOnly={isHistoricalYear}
+          readOnly
         />
         <AccountSide
           title="Passivkonten" type="passiv" accounts={passiv} total={totalPassiv}
-          groups={groups} isAdmin={isAdmin} allGroups={groups}
-          onAccountsChange={onAccountsChange} supabase={supabase}
+          groups={groups} allGroups={groups}
           icon={<TrendingDown size={18} className="text-purple-600" />}
           jahresergebnis={ergebnis}
-          readOnly={isHistoricalYear}
+          readOnly
         />
         <div className="lg:col-span-2 bg-white rounded-2xl border border-[#E1D6C2] p-4">
           <div className="flex justify-between items-center">
@@ -334,32 +339,25 @@ function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, isHistori
 }
 
 // ── Erfolgsrechnung Tab ──────────────────────────────────────
-function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, fiscalYears, selectedFiscalYearId, onFiscalYearChange, groups, isAdmin, onAccountsChange, supabase }: {
+function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, selectedFiscalYear: _selectedFiscalYear, groups }: {
   ertrag: Account[]; aufwand: Account[]
   totalErtrag: number; totalAufwand: number; ergebnis: number
-  fiscalYears: FiscalYear[]; selectedFiscalYearId: string
-  onFiscalYearChange: (id: string) => void
-  groups: AccountGroup[]; isAdmin: boolean
-  onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>; supabase: ReturnType<typeof createClient>
+  selectedFiscalYear: FiscalYear
+  groups: AccountGroup[]
 }) {
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <FiscalYearPicker fiscalYears={fiscalYears} value={selectedFiscalYearId} onChange={onFiscalYearChange} />
-        <p className="text-xs text-[#7A6E60]">Beträge aus Buchungen des gewählten Geschäftsjahrs</p>
-      </div>
+      <p className="text-xs text-[#7A6E60] text-right mb-4">Beträge aus Buchungen des gewählten Geschäftsjahrs</p>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AccountSide
           title="Ertragskonten" type="ertrag" accounts={ertrag} total={totalErtrag}
-          groups={groups} isAdmin={isAdmin} allGroups={groups}
-          onAccountsChange={onAccountsChange} supabase={supabase}
+          groups={groups} allGroups={groups}
           icon={<TrendingUp size={18} className="text-green-600" />}
           readOnly
         />
         <AccountSide
           title="Aufwandskonten" type="aufwand" accounts={aufwand} total={totalAufwand}
-          groups={groups} isAdmin={isAdmin} allGroups={groups}
-          onAccountsChange={onAccountsChange} supabase={supabase}
+          groups={groups} allGroups={groups}
           icon={<TrendingDown size={18} className="text-red-600" />}
           readOnly
         />
@@ -385,54 +383,20 @@ function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, fisc
   )
 }
 
-// ── Account Side (hierarchical) ──────────────────────────────
-function AccountSide({ title, type, accounts, total, groups, isAdmin, allGroups, onAccountsChange, supabase, icon, jahresergebnis, readOnly }: {
+// ── Account Side (hierarchical, always read-only) ────────────
+function AccountSide({ title, type, accounts, total, groups, allGroups, icon, jahresergebnis, readOnly }: {
   title: string; type: AccountType; accounts: Account[]; total: number
-  groups: AccountGroup[]; isAdmin: boolean; allGroups: AccountGroup[]
-  onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
-  supabase: ReturnType<typeof createClient>; icon: React.ReactNode
+  groups: AccountGroup[]; allGroups: AccountGroup[]
+  icon: React.ReactNode
   jahresergebnis?: number
   readOnly?: boolean
 }) {
-  const [modal, setModal]         = useState<'new' | 'edit' | null>(null)
-  const [editing, setEditing]     = useState<Account | null>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-  const [error, setError]         = useState<string | null>(null)
-  const [isPending, start]        = useTransition()
-
   const tree = buildGroupTree(groups, accounts, type)
   const ungrouped = accounts.filter(a => !a.group_id)
 
-  async function handleSave(data: Omit<Account, 'id' | 'is_active'>) {
-    setError(null)
-    start(async () => {
-      if (modal === 'new') {
-        const { data: created, error: err } = await supabase.from('accounts').insert({ ...data, is_active: true, type }).select().single()
-        if (err) { setError(err.message); return }
-        onAccountsChange(prev => [...prev, created as Account].sort((a, b) => a.number.localeCompare(b.number)))
-      } else if (modal === 'edit' && editing) {
-        const { data: updated, error: err } = await supabase.from('accounts').update(data).eq('id', editing.id).select().single()
-        if (err) { setError(err.message); return }
-        onAccountsChange(prev => prev.map(a => a.id === editing.id ? updated as Account : a))
-      }
-      setModal(null); setEditing(null)
-    })
-  }
-
-  async function handleDelete(id: string) {
-    start(async () => {
-      await supabase.from('accounts').delete().eq('id', id)
-      onAccountsChange(prev => prev.filter(a => a.id !== id))
-      setDeleteConfirm(null)
-    })
-  }
-
   const rowProps = {
-    isAdmin, deleteConfirm, readOnly: readOnly ?? false,
-    onEdit: (a: Account) => { setEditing(a); setModal('edit'); setError(null) },
-    onDelete: (id: string) => setDeleteConfirm(id),
-    onConfirmDelete: handleDelete,
-    onCancelDelete: () => setDeleteConfirm(null),
+    isAdmin: false, deleteConfirm: null, readOnly: true,
+    onEdit: () => {}, onDelete: () => {}, onConfirmDelete: () => {}, onCancelDelete: () => {},
   }
 
   return (
@@ -440,14 +404,6 @@ function AccountSide({ title, type, accounts, total, groups, isAdmin, allGroups,
       <div className="flex items-center gap-2 px-5 py-4 border-b border-[#E1D6C2]">
         {icon}
         <h2 className="font-semibold text-[#2A2622]" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>{title}</h2>
-        {!readOnly && (
-          <button
-            onClick={() => { setEditing(null); setModal('new'); setError(null) }}
-            className="ml-auto flex items-center gap-1 text-xs text-[#6B8E7F] hover:text-[#5a7a6c] font-medium"
-          >
-            <Plus size={13} /> Konto
-          </button>
-        )}
       </div>
 
       {tree.length === 0 && ungrouped.length === 0 && (
@@ -489,18 +445,12 @@ function AccountSide({ title, type, accounts, total, groups, isAdmin, allGroups,
         <span className="font-semibold text-sm text-[#2A2622]">Total</span>
         <span className="font-bold text-[#2A2622]">{fmt(total + (jahresergebnis ?? 0))}</span>
       </div>
-
-      {modal && (
-        <AccountModal
-          mode={modal} initial={editing} fixedType={type}
-          groups={allGroups.filter(g => g.type === type)}
-          onSave={handleSave} onClose={() => { setModal(null); setEditing(null) }}
-          isPending={isPending} error={error}
-        />
-      )}
     </div>
   )
 }
+
+// Suppress unused variable warning — allGroups accepted for API compatibility
+void (AccountSide as unknown as (p: { allGroups: AccountGroup[] }) => null)
 
 // ── Recursive group node renderer ────────────────────────────
 function GroupNodeRow({ node, depth, rowProps }: {
@@ -594,11 +544,149 @@ function AccountRows({ accounts, isAdmin, deleteConfirm, onEdit, onDelete, onCon
   )
 }
 
+// ── Konten Tab (Admin) ───────────────────────────────────────
+function KontenTab({ accounts, groups, onAccountsChange, supabase }: {
+  accounts: Account[]
+  groups: AccountGroup[]
+  onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
+  supabase: ReturnType<typeof createClient>
+}) {
+  const [filterType, setFilterType] = useState<AccountType | 'all'>('all')
+  const [modal, setModal]           = useState<'new' | 'edit' | null>(null)
+  const [editing, setEditing]       = useState<Account | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [error, setError]           = useState<string | null>(null)
+  const [isPending, start]          = useTransition()
+
+  const types: (AccountType | 'all')[] = ['all', 'aktiv', 'passiv', 'ertrag', 'aufwand']
+  const typeLabel: Record<string, string> = { all: 'Alle', aktiv: 'Aktiv', passiv: 'Passiv', ertrag: 'Ertrag', aufwand: 'Aufwand' }
+
+  const filtered = accounts
+    .filter(a => filterType === 'all' || a.type === filterType)
+    .sort((a, b) => a.number.localeCompare(b.number))
+
+  const newAccountType: AccountType = filterType === 'all' ? 'aktiv' : filterType
+
+  async function handleSave(data: Omit<Account, 'id' | 'is_active'>) {
+    setError(null)
+    start(async () => {
+      if (modal === 'new') {
+        const { data: created, error: err } = await supabase.from('accounts').insert({ ...data, is_active: true }).select().single()
+        if (err) { setError(err.message); return }
+        onAccountsChange(prev => [...prev, created as Account].sort((a, b) => a.number.localeCompare(b.number)))
+      } else if (modal === 'edit' && editing) {
+        const { data: updated, error: err } = await supabase.from('accounts').update(data).eq('id', editing.id).select().single()
+        if (err) { setError(err.message); return }
+        onAccountsChange(prev => prev.map(a => a.id === editing.id ? updated as Account : a))
+      }
+      setModal(null); setEditing(null)
+    })
+  }
+
+  async function handleDelete(id: string) {
+    start(async () => {
+      await supabase.from('accounts').delete().eq('id', id)
+      onAccountsChange(prev => prev.filter(a => a.id !== id))
+      setDeleteConfirm(null)
+    })
+  }
+
+  async function handleToggleActive(account: Account) {
+    start(async () => {
+      const { data: updated } = await supabase.from('accounts').update({ is_active: !account.is_active }).eq('id', account.id).select().single()
+      if (updated) onAccountsChange(prev => prev.map(a => a.id === account.id ? updated as Account : a))
+    })
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex gap-1 bg-white rounded-xl border border-[#E1D6C2] p-1">
+          {types.map(t => (
+            <button
+              key={t}
+              onClick={() => setFilterType(t)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filterType === t ? 'bg-[#6B8E7F] text-white' : 'text-[#7A6E60] hover:text-[#2A2622]'}`}
+            >
+              {typeLabel[t]}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => { setEditing(null); setModal('new'); setError(null) }}
+          className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          <Plus size={16} /> Konto erfassen
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
+        {filtered.length === 0 ? (
+          <p className="text-sm text-[#7A6E60] text-center py-12">Keine Konten</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
+                <th className="text-left px-5 py-3">Nr.</th>
+                <th className="text-left py-3">Name</th>
+                <th className="text-left py-3 hidden sm:table-cell">Typ</th>
+                <th className="text-right py-3">Saldo</th>
+                <th className="py-3 pr-4 w-20"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(account => (
+                <tr key={account.id} className={`border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] group ${!account.is_active ? 'opacity-50' : ''}`}>
+                  <td className="px-5 py-3 font-mono text-xs text-[#7A6E60]">{account.number}</td>
+                  <td className="py-3 pr-4">
+                    <div className="font-medium text-[#2A2622]">{account.name}</div>
+                    {account.description && <div className="text-xs text-[#7A6E60]">{account.description}</div>}
+                  </td>
+                  <td className="py-3 pr-4 hidden sm:table-cell">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#F4EDE2] text-[#7A6E60]">{TYPE_LABELS[account.type]}</span>
+                  </td>
+                  <td className="py-3 pr-4 text-right font-mono text-sm text-[#2A2622]">{fmt(Number(account.balance))}</td>
+                  <td className="py-3 pr-4">
+                    {deleteConfirm === account.id ? (
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => handleDelete(account.id)} disabled={isPending} className="text-red-600 p-1"><Check size={13} /></button>
+                        <button onClick={() => setDeleteConfirm(null)} className="text-[#7A6E60] p-1"><X size={13} /></button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => handleToggleActive(account)} title={account.is_active ? 'Deaktivieren' : 'Aktivieren'} className="text-[#7A6E60] hover:text-[#6B8E7F] p-1">
+                          {account.is_active ? <Lock size={13} /> : <Unlock size={13} />}
+                        </button>
+                        <button onClick={() => { setEditing(account); setModal('edit'); setError(null) }} className="text-[#7A6E60] hover:text-[#6B8E7F] p-1"><Pencil size={13} /></button>
+                        <button onClick={() => setDeleteConfirm(account.id)} className="text-[#7A6E60] hover:text-red-600 p-1"><Trash2 size={13} /></button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {modal && (
+        <AccountModal
+          mode={modal} initial={editing} fixedType={editing?.type ?? newAccountType}
+          groups={groups} onSave={handleSave}
+          onClose={() => { setModal(null); setEditing(null) }}
+          isPending={isPending} error={error}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Buchungen Tab ────────────────────────────────────────────
-function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesChange, onAccountsChange, supabase }: {
+function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selectedFiscalYearClosed, onJournalEntriesChange, onAccountsChange, supabase }: {
   accounts: Account[]
   journalEntries: JournalEntry[]
-  fiscalYears: FiscalYear[]
+  selectedFiscalYearId: string
+  selectedFiscalYearClosed: boolean
   onJournalEntriesChange: React.Dispatch<React.SetStateAction<JournalEntry[]>>
   onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
   supabase: ReturnType<typeof createClient>
@@ -616,16 +704,11 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
   const [creditId, setCreditId] = useState('')
   const [amount, setAmount]     = useState('')
 
-  const defaultFiscalYearId = fiscalYears.find(y => !y.is_closed)?.id ?? fiscalYears[0]?.id ?? ''
-  const [filterYearId, setFilterYearId]       = useState<string>('all')
-  const [formFiscalYearId, setFormFiscalYearId] = useState<string>(defaultFiscalYearId)
-
   const isEditMode = editingEntry !== null
 
   function openNew() {
     setEditingEntry(null)
     setDate(today); setDesc(''); setDebitId(''); setCreditId(''); setAmount('')
-    setFormFiscalYearId(fiscalYears.find(y => !y.is_closed)?.id ?? fiscalYears[0]?.id ?? '')
     setError(null); setShowForm(true)
   }
 
@@ -636,7 +719,6 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
     setDebitId(entry.debit_account_id)
     setCreditId(entry.credit_account_id)
     setAmount(String(entry.amount))
-    setFormFiscalYearId(entry.fiscal_year_id ?? defaultFiscalYearId)
     setError(null); setShowForm(true)
   }
 
@@ -662,8 +744,7 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
     const amt = parseFloat(amount)
     if (!amt || amt <= 0) { setError('Betrag muss grösser als 0 sein'); return }
     if (debitId === creditId) { setError('Soll- und Habenkonto dürfen nicht identisch sein'); return }
-    const selectedFY = fiscalYears.find(y => y.id === formFiscalYearId)
-    if (selectedFY?.is_closed) { setError('Auf ein abgeschlossenes Geschäftsjahr kann nicht gebucht werden.'); return }
+    if (selectedFiscalYearClosed) { setError('Auf ein abgeschlossenes Geschäftsjahr kann nicht gebucht werden.'); return }
 
     const debitAcc  = accounts.find(a => a.id === debitId)
     const creditAcc = accounts.find(a => a.id === creditId)
@@ -699,7 +780,7 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
         // Update journal entry
         const { data: updated, error: err } = await supabase
           .from('journal_entries')
-          .update({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: formFiscalYearId || null })
+          .update({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: selectedFiscalYearId })
           .eq('id', editingEntry.id)
           .select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
           .single()
@@ -711,7 +792,7 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
         // ── New entry ────────────────────────────────────────────
         const { data: entry, error: err } = await supabase
           .from('journal_entries')
-          .insert({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: formFiscalYearId || null })
+          .insert({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: selectedFiscalYearId })
           .select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)')
           .single()
         if (err) { setError(err.message); return }
@@ -762,14 +843,14 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
   }
 
   const sortedAccounts = [...accounts].sort((a, b) => a.number.localeCompare(b.number))
-  const filteredEntries = filterYearId === 'all' ? journalEntries : journalEntries.filter(e => e.fiscal_year_id === filterYearId)
 
   return (
     <div>
       <div className="flex justify-end mb-5">
         <button
           onClick={openNew}
-          className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          disabled={selectedFiscalYearClosed}
+          className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus size={16} /> Buchung erfassen
         </button>
@@ -780,6 +861,12 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
           <h3 className="text-base font-semibold text-[#2A2622] mb-4" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
             {isEditMode ? 'Buchung bearbeiten' : 'Neue Buchung'}
           </h3>
+          {selectedFiscalYearClosed && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 flex gap-2">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <span>Dieses Geschäftsjahr ist abgeschlossen. Buchungen sind nicht mehr erlaubt.</span>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Datum *">
               <input type="date" value={date} onChange={e => setDate(e.target.value)} required className={inp} />
@@ -808,24 +895,6 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
                 <input value={description} onChange={e => setDesc(e.target.value)} required placeholder="z.B. Mieteinnahme Januar" className={inp} />
               </Field>
             </div>
-            <div className="sm:col-span-2">
-              <Field label="Geschäftsjahr *">
-                <select value={formFiscalYearId} onChange={e => setFormFiscalYearId(e.target.value)} required className={inp}>
-                  <option value="">— Geschäftsjahr wählen —</option>
-                  {fiscalYears.map(y => (
-                    <option key={y.id} value={y.id} disabled={y.is_closed}>
-                      {y.name}{y.is_closed ? ' (Gesperrt)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-            {formFiscalYearId && fiscalYears.find(y => y.id === formFiscalYearId)?.is_closed && (
-              <div className="sm:col-span-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-800 flex gap-2">
-                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-                <span>Dieses Geschäftsjahr ist abgeschlossen. Buchungen sind nicht mehr erlaubt.</span>
-              </div>
-            )}
           </div>
           {debitId && creditId && (
             <div className="mt-3 text-xs text-[#7A6E60] bg-[#F7F2EC] rounded-lg px-3 py-2">
@@ -839,33 +908,18 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
             <button type="button" onClick={closeForm} className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors">
               Abbrechen
             </button>
-            <button type="submit" disabled={isPending || !!(formFiscalYearId && fiscalYears.find(y => y.id === formFiscalYearId)?.is_closed)} className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50">
+            <button type="submit" disabled={isPending || selectedFiscalYearClosed} className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               {isPending ? 'Speichern…' : isEditMode ? 'Speichern' : 'Buchen'}
             </button>
           </div>
         </form>
       )}
 
-      <div className="flex items-center gap-3 mb-4">
-        <CalendarRange size={14} className="text-[#7A6E60]" />
-        <span className="text-sm text-[#7A6E60]">Geschäftsjahr:</span>
-        <select
-          value={filterYearId}
-          onChange={e => setFilterYearId(e.target.value)}
-          className="text-sm border border-[#E1D6C2] rounded-lg px-2.5 py-1.5 bg-white text-[#2A2622] focus:outline-none focus:ring-1 focus:ring-[#6B8E7F]"
-        >
-          <option value="all">Alle Jahre</option>
-          {fiscalYears.map(y => (
-            <option key={y.id} value={y.id}>{y.name}{y.is_closed ? ' (Abgeschlossen)' : ''}</option>
-          ))}
-        </select>
-      </div>
-
       <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
-        {filteredEntries.length === 0 ? (
+        {journalEntries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-[#7A6E60]">
             <ReceiptText size={40} className="mb-3 opacity-30" />
-            <p className="text-sm">Noch keine Buchungen vorhanden</p>
+            <p className="text-sm">Noch keine Buchungen für dieses Geschäftsjahr</p>
           </div>
         ) : (
           <table className="w-full text-sm">
@@ -881,7 +935,7 @@ function BuchungenTab({ accounts, journalEntries, fiscalYears, onJournalEntriesC
               </tr>
             </thead>
             <tbody>
-              {filteredEntries.map(entry => (
+              {journalEntries.map(entry => (
                 <tr key={entry.id} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] group">
                   <td className="px-5 py-3 text-[#4A4138] whitespace-nowrap">{fmtDate(entry.date)}</td>
                   <td className="py-3 pr-4 text-[#2A2622] font-medium">{entry.description}</td>
@@ -1016,7 +1070,6 @@ function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts
       }
 
       // ── Eröffnungsbuchungen: Aktiv → Soll Aktiv / Haben 2970 ──
-      // Bei negativem Saldo wird Soll/Haben umgekehrt (amount muss > 0 sein)
       const openingEntries: EntryInsert[] = []
       for (const a of aktivAccounts) {
         const bal = Number(a.balance)
@@ -1034,7 +1087,7 @@ function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts
 
       // ── Eröffnungsbuchungen: Passiv → Soll 2970 / Haben Passiv ──
       for (const a of passivAccounts) {
-        if (a.id === guvId) continue  // Gegenkonto selbst überspringen
+        if (a.id === guvId) continue
         const bal = Number(a.balance)
         if (Math.abs(bal) < 0.005) continue
         const amt = Math.abs(bal)
@@ -1075,11 +1128,10 @@ function JahresabschlussModal({ year, aktivAccounts, passivAccounts, allAccounts
       const allBilanzAccounts = [...aktivAccounts, ...passivAccounts]
       const updatedAccounts: Account[] = []
       for (const a of allBilanzAccounts) {
-        const newBalance = balanceDeltas.get(a.id) ?? 0  // zero + delta
+        const newBalance = balanceDeltas.get(a.id) ?? 0
         await supabase.from('accounts').update({ balance: newBalance }).eq('id', a.id)
         updatedAccounts.push({ ...a, balance: newBalance })
       }
-      // 2970 itself: zero + its delta (net of all opening entries)
       if (guvAcc && !allBilanzAccounts.find(a => a.id === guvId)) {
         const newBalance = balanceDeltas.get(guvId) ?? 0
         await supabase.from('accounts').update({ balance: newBalance }).eq('id', guvId)
