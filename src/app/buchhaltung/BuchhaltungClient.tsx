@@ -1321,12 +1321,14 @@ function parseCamt053(xmlText: string): RawCamtEntry[] {
         const date   = getText(bookDt ?? valDt ?? ntry, 'Dt')
         if (!date) return { line, date: '', amount: 0, cdtDbtInd: cdi, remittance: '', debtorName: '', error: 'Kein Datum' }
 
-        // Remittance info (all Ustrd + Strd/AddtlRmtInf)
+        // Remittance info: Ustrd + strukturierte Ref (CdtrRefInf/Ref) + AddtlRmtInf
         const txDtlsAll = Array.from(ntry.getElementsByTagName('TxDtls'))
         let remittance = ''
         let debtorName = ''
         for (const tx of txDtlsAll) {
           Array.from(tx.getElementsByTagName('Ustrd')).forEach(u => { remittance += ' ' + (u.textContent?.trim() ?? '') })
+          // Strukturierte Referenz (z.B. RF27000000000000000011323)
+          Array.from(tx.getElementsByTagName('Ref')).forEach(r => { remittance += ' ' + (r.textContent?.trim() ?? '') })
           Array.from(tx.getElementsByTagName('AddtlRmtInf')).forEach(u => { remittance += ' ' + (u.textContent?.trim() ?? '') })
           if (!debtorName) debtorName = getText(tx, 'Nm')
         }
@@ -1345,8 +1347,21 @@ function parseCamt053(xmlText: string): RawCamtEntry[] {
   }
 }
 
-function extractInvoiceNumbers(text: string): string[] {
-  return [...new Set((text.match(/R\d{3,5}/gi) ?? []).map(s => s.toUpperCase()))]
+/**
+ * Extrahiert Referenznummern aus CAMT-Remittance-Text.
+ * Unterstützt:
+ *  - RF-Strukturreferenz: RF27000000000000000011323 → "11323"
+ *  - 5-stellige Nummern direkt: "PILATESGRUPPE 11323" → "11323"
+ *  - Muster "datum / 11310": "2026-03-13 / 11310" → "11310"
+ * Jahreszahlen (4-stellig) werden nicht erfasst.
+ */
+function extractRefNumbers(text: string): string[] {
+  const nums = new Set<string>()
+  // RF-Format: RF + 2 Prüfziffern + führende Nullen + Referenznummer
+  for (const m of text.matchAll(/RF\d{2}0+(\d{3,6})/gi)) nums.add(m[1])
+  // 5-stellige Nummern (Jahreszahlen sind 4-stellig → kein Konflikt)
+  for (const m of text.matchAll(/\b(\d{5})\b/g)) nums.add(m[1])
+  return [...nums]
 }
 
 // ── Account Combobox ─────────────────────────────────────────
@@ -1611,9 +1626,17 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         continue
       }
 
-      // Try invoice match via number in remittance
-      const nums = extractInvoiceNumbers(entry.remittance + ' ' + entry.debtorName)
-      const matched = nums.length === 1 ? openInvList.find(inv => inv.number.toUpperCase() === nums[0]) : null
+      // Referenznummern aus Remittance extrahieren (5-stellig oder RF-Format)
+      const nums = extractRefNumbers(entry.remittance + ' ' + entry.debtorName)
+      // Matching: Referenz-Feld der Rechnung enthält die Nummer (z.B. "R11323 Wattenhofer" enthält "11323")
+      // Fallback: Rechnungsnummer direkt (für ältere Importe ohne reference-Feld)
+      const matchedList = openInvList.filter(inv =>
+        nums.some(n =>
+          (inv.reference && inv.reference.includes(n)) ||
+          inv.number.toUpperCase() === n
+        )
+      )
+      const matched = matchedList.length === 1 ? matchedList[0] : null
 
       // Auto-book if: matched invoice + Forderungskonto known + amount matches invoice total (±0.01)
       const amountMatch = matched && Math.abs(matched.total - entry.amount) < 0.015
