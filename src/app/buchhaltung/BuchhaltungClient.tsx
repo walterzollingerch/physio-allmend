@@ -76,12 +76,15 @@ interface PendingTransaction {
   debtorName: string
   bankAccountId: string
   rawLine: number
+  suggestedInvoice?: InvoiceForPayment  // vorgematchte Rechnung
+  suggestedCreditId?: string            // vorgematchtes Forderungskonto
+  isMatched?: boolean                   // Betrag + Rechnung stimmen überein
 }
 
 interface ImportResult {
   totalRead: number
-  autoBooked: number
-  pendingCount: number
+  matched: number      // Einträge mit vorgeschlagenem Match (bereit zur Bestätigung)
+  pendingCount: number // Einträge ohne Match
   errors: { line: number; reason: string }[]
 }
 
@@ -1590,10 +1593,10 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     const xmlText = await importFile.text()
     const entries = parseCamt053(xmlText)
 
-    const result: ImportResult = { totalRead: entries.length, autoBooked: 0, pendingCount: 0, errors: [] }
+    const result: ImportResult = { totalRead: entries.length, matched: 0, pendingCount: 0, errors: [] }
     const newPending: PendingTransaction[] = []
 
-    // Fetch open invoices for matching
+    // Offene Rechnungen für Matching laden
     const { data: invData } = await supabase
       .from('invoices')
       .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
@@ -1608,83 +1611,40 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
       return { ...inv, total: sub - disc, reference: inv.reference ?? null } as InvoiceForPayment
     })
 
-    const bankAcc = accounts.find(a => a.id === importBankAccId)
-    const fordAcc = importFordAccId ? accounts.find(a => a.id === importFordAccId) : null
-
-    const JE_SELECT = '*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)'
-
     for (const entry of entries) {
       if (entry.error && entry.amount === 0) {
         result.errors.push({ line: entry.line, reason: entry.error })
         continue
       }
 
-      // Only CRDT entries (incoming payments) for auto-booking
-      if (entry.cdtDbtInd !== 'CRDT') {
-        newPending.push({ tempId: `p-${Date.now()}-${entry.line}`, date: entry.date, amount: entry.amount, cdtDbtInd: entry.cdtDbtInd, description: entry.remittance || entry.debtorName || 'Import', debtorName: entry.debtorName, bankAccountId: importBankAccId, rawLine: entry.line })
-        result.pendingCount++
-        continue
-      }
-
       // Referenznummern aus Remittance extrahieren (5-stellig oder RF-Format)
       const nums = extractRefNumbers(entry.remittance + ' ' + entry.debtorName)
-      // Matching: Referenz-Feld der Rechnung enthält die Nummer (z.B. "R11323 Wattenhofer" enthält "11323")
-      // Fallback: Rechnungsnummer direkt (für ältere Importe ohne reference-Feld)
       const matchedList = openInvList.filter(inv =>
         nums.some(n =>
           (inv.reference && inv.reference.includes(n)) ||
           inv.number.toUpperCase() === n
         )
       )
-      const matched = matchedList.length === 1 ? matchedList[0] : null
+      const suggestedInvoice = matchedList.length === 1 ? matchedList[0] : undefined
+      const amountMatch = suggestedInvoice && Math.abs(suggestedInvoice.total - entry.amount) < 0.015
+      const isMatched = !!(suggestedInvoice && amountMatch && importFordAccId)
 
-      // Auto-book if: matched invoice + Forderungskonto known + amount matches invoice total (±0.01)
-      const amountMatch = matched && Math.abs(matched.total - entry.amount) < 0.015
+      newPending.push({
+        tempId: `p-${Date.now()}-${entry.line}`,
+        date: entry.date,
+        amount: entry.amount,
+        cdtDbtInd: entry.cdtDbtInd,
+        description: entry.remittance || entry.debtorName || 'Import',
+        debtorName: entry.debtorName,
+        bankAccountId: importBankAccId,
+        rawLine: entry.line,
+        suggestedInvoice,
+        suggestedCreditId: isMatched ? importFordAccId : undefined,
+        isMatched,
+      })
 
-      if (matched && bankAcc && fordAcc && amountMatch) {
-        try {
-          const desc = `Zahlung ${matched.number} – ${entry.debtorName || matched.customer_name}`
-          const { data: rows, error: err } = await supabase.from('journal_entries')
-            .insert({ date: entry.date, description: desc, debit_account_id: importBankAccId, credit_account_id: importFordAccId, amount: entry.amount, fiscal_year_id: selectedFiscalYearId, invoice_id: matched.id })
-            .select(JE_SELECT)
-          if (err) throw new Error(err.message)
-
-          const newEntry = Array.isArray(rows) ? rows[0] : rows
-          if (newEntry) onJournalEntriesChange(prev => [newEntry as JournalEntry, ...prev])
-
-          // Balance deltas
-          const bankDelta = (bankAcc.type === 'aktiv' || bankAcc.type === 'aufwand') ? entry.amount : -entry.amount
-          const fordDelta = (fordAcc.type === 'passiv' || fordAcc.type === 'ertrag') ? entry.amount : -entry.amount
-          await Promise.all([
-            supabase.from('accounts').update({ balance: Number(bankAcc.balance) + bankDelta }).eq('id', importBankAccId),
-            supabase.from('accounts').update({ balance: Number(fordAcc.balance) + fordDelta }).eq('id', importFordAccId),
-          ])
-          onAccountsChange(prev => prev.map(a => {
-            if (a.id === importBankAccId) return { ...a, balance: Number(a.balance) + bankDelta }
-            if (a.id === importFordAccId) return { ...a, balance: Number(a.balance) + fordDelta }
-            return a
-          }))
-
-          // Mark invoice as bezahlt
-          await supabase.from('invoices').update({ status: 'bezahlt' }).eq('id', matched.id)
-
-          result.autoBooked++
-        } catch (e) {
-          result.errors.push({ line: entry.line, reason: e instanceof Error ? e.message : 'Fehler' })
-        }
-      } else {
-        newPending.push({
-          tempId: `p-${Date.now()}-${entry.line}`,
-          date: entry.date,
-          amount: entry.amount,
-          cdtDbtInd: entry.cdtDbtInd,
-          description: entry.remittance || entry.debtorName || 'Import',
-          debtorName: entry.debtorName,
-          bankAccountId: importBankAccId,
-          rawLine: entry.line,
-        })
-        result.pendingCount++
-      }
+      if (isMatched) result.matched++
+      else result.pendingCount++
     }
 
     setPendingTransactions(prev => [...prev, ...newPending])
@@ -1695,10 +1655,18 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
 
   function openPendingEdit(pt: PendingTransaction) {
     setEditPending(pt)
-    setPendingCreditId(importFordAccId)
-    setPendingDesc(pt.description)
-    setPendingLinkInv(false)
-    setPendingInvoice(null)
+    // Bei vorgematchtem Eintrag Formular vorausfüllen
+    if (pt.isMatched && pt.suggestedInvoice && pt.suggestedCreditId) {
+      setPendingCreditId(pt.suggestedCreditId)
+      setPendingDesc(`Zahlung ${pt.suggestedInvoice.number} – ${pt.debtorName || pt.suggestedInvoice.customer_name}`)
+      setPendingLinkInv(true)
+      setPendingInvoice(pt.suggestedInvoice)
+    } else {
+      setPendingCreditId(importFordAccId)
+      setPendingDesc(pt.description)
+      setPendingLinkInv(false)
+      setPendingInvoice(null)
+    }
     setPendingError(null)
   }
 
@@ -2082,7 +2050,14 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         <div className="mb-4">
           <div className="flex items-center gap-2 mb-2 px-1">
             <AlertTriangle size={15} className="text-amber-600" />
-            <span className="text-sm font-medium text-amber-700">{pendingTransactions.length} importierte Buchung{pendingTransactions.length !== 1 ? 'en' : ''} zu bearbeiten</span>
+            <span className="text-sm font-medium text-amber-700">
+              {pendingTransactions.length} importierte Buchung{pendingTransactions.length !== 1 ? 'en' : ''} zu bestätigen
+              {pendingTransactions.filter(p => p.isMatched).length > 0 && (
+                <span className="ml-2 text-green-700">
+                  ({pendingTransactions.filter(p => p.isMatched).length} zugeordnet ✓)
+                </span>
+              )}
+            </span>
           </div>
           <div className="bg-white rounded-2xl border border-amber-200 overflow-hidden">
             <table className="w-full text-sm">
@@ -2097,15 +2072,31 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
               </thead>
               <tbody>
                 {pendingTransactions.map(pt => (
-                  <tr key={pt.tempId} className="border-b border-amber-50 last:border-0 hover:bg-amber-50 cursor-pointer" onClick={() => openPendingEdit(pt)}>
+                  <tr key={pt.tempId}
+                    className={`border-b last:border-0 cursor-pointer transition-colors ${pt.isMatched ? 'border-green-50 hover:bg-green-50' : 'border-amber-50 hover:bg-amber-50'}`}
+                    onClick={() => openPendingEdit(pt)}
+                  >
                     <td className="px-5 py-2.5 text-[#4A4138]">{fmtDate(pt.date)}</td>
-                    <td className="py-2.5 pr-3 text-[#2A2622] max-w-[200px] truncate">{pt.description}</td>
+                    <td className="py-2.5 pr-3 text-[#2A2622] max-w-[200px]">
+                      <p className="truncate">{pt.description}</p>
+                      {pt.isMatched && pt.suggestedInvoice && (
+                        <p className="text-xs text-green-700 font-medium mt-0.5">
+                          → {pt.suggestedInvoice.number} {pt.suggestedInvoice.customer_name}
+                        </p>
+                      )}
+                    </td>
                     <td className="py-2.5 pr-3 text-[#7A6E60] hidden sm:table-cell">{pt.debtorName || '—'}</td>
                     <td className="py-2.5 pr-5 text-right font-semibold text-[#2A2622]">{fmt(pt.amount)}</td>
                     <td className="py-2.5 pr-3 text-right">
-                      <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
-                        <AlertTriangle size={10} /> bearbeiten
-                      </span>
+                      {pt.isMatched ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-100 rounded-full px-2 py-0.5">
+                          <Check size={10} /> zugeordnet
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
+                          <AlertTriangle size={10} /> bearbeiten
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -2227,11 +2218,11 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
                       <p className="text-lg font-bold text-[#2A2622]">{importResult.totalRead}</p>
                     </div>
                     <div className="bg-white rounded-lg px-3 py-2 text-center">
-                      <p className="text-xs text-[#7A6E60]">Auto-gebucht</p>
-                      <p className="text-lg font-bold text-green-700">{importResult.autoBooked}</p>
+                      <p className="text-xs text-[#7A6E60]">Zugeordnet ✓</p>
+                      <p className="text-lg font-bold text-green-700">{importResult.matched}</p>
                     </div>
                     <div className="bg-white rounded-lg px-3 py-2 text-center">
-                      <p className="text-xs text-[#7A6E60]">Zu bearbeiten</p>
+                      <p className="text-xs text-[#7A6E60]">Manuell</p>
                       <p className="text-lg font-bold text-amber-600">{importResult.pendingCount}</p>
                     </div>
                   </div>
