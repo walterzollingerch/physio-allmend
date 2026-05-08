@@ -163,9 +163,17 @@ export default function BuchhaltungClient({
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(initialJournalEntries)
   const [tab, setTab] = useState<'bilanz' | 'erfolg' | 'buchungen' | 'kontoübersicht'>('bilanz')
   const [adminTab, setAdminTab] = useState<'konten' | 'gruppen' | 'jahre'>('konten')
-  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>(
-    () => initialFiscalYears.find(y => !y.is_closed)?.id ?? initialFiscalYears[0]?.id ?? ''
-  )
+  const [selectedFiscalYearId, setSelectedFiscalYearId] = useState<string>(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    // 1. GJ, dessen Bereich das heutige Datum enthält
+    const current = initialFiscalYears.find(y => today >= y.start_date && today <= y.end_date)
+    if (current) return current.id
+    // 2. Erstes offenes GJ
+    const open = initialFiscalYears.find(y => !y.is_closed)
+    if (open) return open.id
+    // 3. Letztes vorhandenes GJ
+    return initialFiscalYears[0]?.id ?? ''
+  })
 
   const supabase = createClient()
 
