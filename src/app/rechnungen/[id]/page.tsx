@@ -22,10 +22,11 @@ export default async function RechnungPage({ params }: { params: Promise<{ id: s
 
   if (!invoice) redirect('/rechnungen')
 
-  const [{ data: items }, { data: customers }, { data: accounts }] = await Promise.all([
+  const [{ data: items }, { data: customers }, { data: accounts }, { data: fiscalYears }] = await Promise.all([
     supabase.from('invoice_items').select('*').eq('invoice_id', id).order('position'),
     supabase.from('customers').select('id,customer_number,name,street,street_number,postal_code,city,country').order('name'),
     supabase.from('accounts').select('id,number,name,type,balance').eq('is_active', true).order('number'),
+    supabase.from('fiscal_years').select('id,name,start_date,end_date').eq('is_closed', false).order('start_date'),
   ])
 
   return (
@@ -57,6 +58,7 @@ export default async function RechnungPage({ params }: { params: Promise<{ id: s
           isAdmin={profile.role === 'admin'}
           customers={customers ?? []}
           accounts={accounts ?? []}
+          fiscalYears={fiscalYears ?? []}
         />
       </main>
     </div>
