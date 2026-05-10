@@ -1217,7 +1217,7 @@ function KontenTab({ accounts, groups, onAccountsChange, supabase }: {
   async function handleToggleActive(account: Account) {
     start(async () => {
       const { data: updated } = await supabase.from('accounts').update({ is_active: !account.is_active }).eq('id', account.id).select().single()
-      if (updated) onAccountsChange(prev => prev.map(a => a.id === account.id ? updated as Account : a))
+      onAccountsChange(prev => prev.map(a => a.id === account.id ? (updated as Account ?? { ...account, is_active: !account.is_active }) : a))
     })
   }
 
@@ -3253,7 +3253,7 @@ function JahreTab({ fiscalYears, isAdmin, onFiscalYearsChange, accounts, aktivAc
     start(async () => {
       const { data: updated } = await supabase
         .from('fiscal_years').update({ is_closed: false }).eq('id', year.id).select().single()
-      if (updated) onFiscalYearsChange(prev => prev.map(y => y.id === year.id ? updated as FiscalYear : y))
+      onFiscalYearsChange(prev => prev.map(y => y.id === year.id ? (updated as FiscalYear ?? { ...year, is_closed: false }) : y))
     })
   }
 
