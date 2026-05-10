@@ -333,15 +333,26 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
         for (const item of items) { await supabase.from('invoice_items').upsert(item) }
       }
 
-      // Create journal entries per position with account_id
+      // Create journal entries per position with account_id.
+      // Die Rundungsdifferenz wird in den letzten Positionseintrag eingerechnet,
+      // sodass SOLL 1100 und HABEN Ertragskonto direkt den gerundeten Total widerspiegeln.
       const itemsWithAccount = items.filter(i => i.account_id)
 
       // Accumulate balance deltas
       const balanceDeltas = new Map<string, number>()
 
-      for (const item of itemsWithAccount) {
-        const amount = Number(item.unit_price) * Number(item.quantity)
+      for (let idx = 0; idx < itemsWithAccount.length; idx++) {
+        const item   = itemsWithAccount[idx]
+        const isLast = idx === itemsWithAccount.length - 1
+        let amount   = Number(item.unit_price) * Number(item.quantity)
         if (amount <= 0) continue
+
+        // Rundungsdifferenz beim letzten Eintrag einrechnen:
+        // roundingDiff < 0 → Aufrunden → subtrahieren ergibt +Betrag (492.48 - (-0.02) = 492.50)
+        // roundingDiff > 0 → Abrunden → subtrahieren ergibt -Betrag (492.48 - 0.02  = 492.46)
+        if (isLast && roundingDiff !== 0) {
+          amount = +(amount - roundingDiff).toFixed(2)
+        }
 
         await supabase.from('journal_entries').insert({
           date: inv.invoice_date,
@@ -376,13 +387,6 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           // 1100 (Aktiv): HABEN → balance -
           balanceDeltas.set(forderungsKontoId, (balanceDeltas.get(forderungsKontoId) ?? 0) - discountAmt)
         }
-      }
-
-      // Rundungsdifferenz: keine separate Buchung.
-      // Der gerundete Betrag (total) ist der neue Rechnungsbetrag, den die Bank überweist.
-      // Die Differenz zur Positionssumme wird direkt im 1100-Saldo absorbiert.
-      if (roundingDiff !== 0) {
-        balanceDeltas.set(forderungsKontoId, (balanceDeltas.get(forderungsKontoId) ?? 0) - roundingDiff)
       }
 
       // Update account balances
@@ -1204,16 +1208,29 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                         </tr>
                       </thead>
                       <tbody>
-                        {/* Positionen: SOLL 1100 / HABEN Ertrag */}
-                        {itemsWithAcc.map(item => {
+                        {/* Positionen: SOLL 1100 / HABEN Ertrag
+                            Rundungsdifferenz wird beim letzten Eintrag eingerechnet */}
+                        {itemsWithAcc.map((item, idx) => {
                           const ertragAcc = accounts.find(a => a.id === item.account_id)
+                          const isLast    = idx === itemsWithAcc.length - 1
+                          const baseAmt   = Number(item.unit_price) * Number(item.quantity)
+                          const amount    = isLast && roundingDiff !== 0
+                            ? +(baseAmt - roundingDiff).toFixed(2)
+                            : baseAmt
                           return (
                             <tr key={item.id} className="border-t border-[#F7F2EC]">
-                              <td className="px-3 py-1.5 text-[#2A2622] font-medium">{item.service_name || '—'}</td>
+                              <td className="px-3 py-1.5 text-[#2A2622] font-medium">
+                                {item.service_name || '—'}
+                                {isLast && roundingDiff !== 0 && (
+                                  <span className="ml-1.5 text-[10px] text-blue-500 font-normal">
+                                    inkl. Rundung {roundingDiff < 0 ? '+' : '−'}{fmt(Math.abs(roundingDiff))}
+                                  </span>
+                                )}
+                              </td>
                               <td className="py-1.5 text-[#4A4138]">{fordAcc?.number} {fordAcc?.name}</td>
                               <td className="py-1.5 text-[#4A4138]">{ertragAcc?.number} {ertragAcc?.name}</td>
                               <td className="py-1.5 pr-3 text-right font-medium text-[#2A2622]">
-                                {fmt(Number(item.unit_price) * Number(item.quantity))}
+                                {fmt(amount)}
                               </td>
                             </tr>
                           )
