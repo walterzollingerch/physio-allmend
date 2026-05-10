@@ -55,7 +55,7 @@ interface JournalEntry {
   fiscal_year?: { id: string; name: string } | null
 }
 
-interface InvoiceForPayment {
+export interface InvoiceForPayment {
   id: string
   number: string
   customer_name: string
@@ -68,6 +68,7 @@ interface InvoiceForPayment {
 }
 
 interface PendingTransaction {
+  id?: string
   tempId: string
   date: string
   amount: number
@@ -152,12 +153,13 @@ function computePeriodBalances(accounts: Account[], entries: JournalEntry[]): Ma
 
 // ── Main Component ───────────────────────────────────────────
 export default function BuchhaltungClient({
-  initialAccounts, initialGroups, initialFiscalYears, initialJournalEntries, isAdmin,
+  initialAccounts, initialGroups, initialFiscalYears, initialJournalEntries, initialPendingTransactions, isAdmin,
 }: {
   initialAccounts: Account[]
   initialGroups: AccountGroup[]
   initialFiscalYears: FiscalYear[]
   initialJournalEntries: JournalEntry[]
+  initialPendingTransactions: PendingTransaction[]
   isAdmin: boolean
 }) {
   const [accounts, setAccounts]             = useState<Account[]>(initialAccounts)
@@ -278,6 +280,7 @@ export default function BuchhaltungClient({
               selectedFiscalYear={selectedFiscalYear ?? null}
               onJournalEntriesChange={setJournalEntries}
               onAccountsChange={setAccounts}
+              initialPendingTransactions={initialPendingTransactions}
               supabase={supabase}
             />
           )}
@@ -1469,7 +1472,7 @@ function AccountCombobox({
   )
 }
 
-function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selectedFiscalYearClosed, selectedFiscalYear, onJournalEntriesChange, onAccountsChange, supabase }: {
+function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selectedFiscalYearClosed, selectedFiscalYear, onJournalEntriesChange, onAccountsChange, initialPendingTransactions, supabase }: {
   accounts: Account[]
   journalEntries: JournalEntry[]
   selectedFiscalYearId: string
@@ -1477,6 +1480,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
   selectedFiscalYear: FiscalYear | null
   onJournalEntriesChange: React.Dispatch<React.SetStateAction<JournalEntry[]>>
   onAccountsChange: React.Dispatch<React.SetStateAction<Account[]>>
+  initialPendingTransactions: PendingTransaction[]
   supabase: ReturnType<typeof createClient>
 }) {
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null)
@@ -1501,7 +1505,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
   const [amount, setAmount]     = useState('')
 
   // CAMT Import
-  const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([])
+  const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>(initialPendingTransactions)
   const [importModal, setImportModal]               = useState(false)
   const [importBankAccId, setImportBankAccId]       = useState('')
   const [importFordAccId, setImportFordAccId]       = useState('')
@@ -1647,7 +1651,24 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
       else result.pendingCount++
     }
 
-    setPendingTransactions(prev => [...prev, ...newPending])
+    // Pendenzen in DB persistieren
+    const toInsert = newPending.map(pt => ({
+      date: pt.date,
+      amount: pt.amount,
+      cdt_dbt_ind: pt.cdtDbtInd,
+      description: pt.description,
+      debtor_name: pt.debtorName,
+      bank_account_id: pt.bankAccountId,
+      raw_line: pt.rawLine,
+      suggested_invoice_id: pt.suggestedInvoice?.id ?? null,
+      suggested_credit_id: pt.suggestedCreditId ?? null,
+      is_matched: pt.isMatched ?? false,
+    }))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: savedRows } = await (supabase as any).from('pending_transactions').insert(toInsert).select('id')
+    const savedRowsTyped = savedRows as { id: string }[] | null
+    const newPendingWithIds = newPending.map((pt, i) => ({ ...pt, id: savedRowsTyped?.[i]?.id }))
+    setPendingTransactions(prev => [...prev, ...newPendingWithIds])
     setImportResult(result)
     setImportProcessing(false)
     setImportFile(null)
@@ -1668,6 +1689,12 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
       setPendingInvoice(null)
     }
     setPendingError(null)
+  }
+
+  async function removePending(pt: PendingTransaction) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (pt.id) await (supabase as any).from('pending_transactions').delete().eq('id', pt.id)
+    setPendingTransactions(prev => prev.filter(p => p.tempId !== pt.tempId))
   }
 
   async function completePendingBooking() {
@@ -1714,7 +1741,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         await supabase.from('invoices').update({ status: 'bezahlt' }).eq('id', pendingInvoice.id)
       }
 
-      setPendingTransactions(prev => prev.filter(p => p.tempId !== editPending.tempId))
+      await removePending(editPending)
       setEditPending(null)
     })
   }
@@ -2337,7 +2364,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
 
             <div className="flex gap-2 px-6 py-4 border-t border-[#E1D6C2]">
               <button
-                onClick={() => { setPendingTransactions(prev => prev.filter(p => p.tempId !== editPending.tempId)); setEditPending(null) }}
+                onClick={async () => { await removePending(editPending); setEditPending(null) }}
                 className="px-4 py-2.5 rounded-xl border border-red-200 text-sm text-red-600 hover:bg-red-50"
               >
                 Verwerfen

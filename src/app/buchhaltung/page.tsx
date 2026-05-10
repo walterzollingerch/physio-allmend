@@ -13,12 +13,48 @@ export default async function BuchhaltungPage() {
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
   if (!profile || !['admin', 'physio'].includes(profile.role)) redirect('/dashboard')
 
-  const [{ data: accounts }, { data: groups }, { data: fiscalYears }, { data: journalEntries }] = await Promise.all([
+  const [{ data: accounts }, { data: groups }, { data: fiscalYears }, { data: journalEntries }, { data: pendingRows }] = await Promise.all([
     supabase.from('accounts').select('*').order('number'),
     supabase.from('account_groups').select('*').order('sort_order').order('name'),
     supabase.from('fiscal_years').select('*').order('start_date', { ascending: false }),
     supabase.from('journal_entries').select('*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)').order('date', { ascending: false }).order('created_at', { ascending: false }).limit(5000),
+    supabase.from('pending_transactions').select('*, suggested_invoice:invoices!suggested_invoice_id(id,number,customer_name,invoice_date,due_date,discount_type,discount_value,reference,invoice_items(unit_price,quantity))').order('created_at'),
   ])
+
+  // Map DB rows → PendingTransaction
+  const initialPending = (pendingRows ?? []).map((row: {
+    id: string; date: string; amount: number; cdt_dbt_ind: string;
+    description: string | null; debtor_name: string | null; bank_account_id: string;
+    raw_line: number | null; suggested_credit_id: string | null; is_matched: boolean;
+    suggested_invoice: {
+      id: string; number: string; customer_name: string; invoice_date: string;
+      due_date: string | null; discount_type: string; discount_value: number;
+      reference: string | null;
+      invoice_items: { unit_price: number; quantity: number }[]
+    } | null
+  }) => {
+    let suggestedInvoice: import('./BuchhaltungClient').InvoiceForPayment | undefined
+    if (row.suggested_invoice) {
+      const inv = row.suggested_invoice
+      const sub = (inv.invoice_items ?? []).reduce((s: number, i: { unit_price: number; quantity: number }) => s + Number(i.unit_price) * Number(i.quantity), 0)
+      const disc = inv.discount_type === 'percent' ? sub * Number(inv.discount_value) / 100 : Number(inv.discount_value)
+      suggestedInvoice = { ...inv, total: sub - disc }
+    }
+    return {
+      id: row.id,
+      tempId: row.id,  // use DB id as tempId for dedup
+      date: row.date,
+      amount: Number(row.amount),
+      cdtDbtInd: row.cdt_dbt_ind as 'CRDT' | 'DBIT',
+      description: row.description ?? '',
+      debtorName: row.debtor_name ?? '',
+      bankAccountId: row.bank_account_id,
+      rawLine: row.raw_line ?? 0,
+      suggestedInvoice,
+      suggestedCreditId: row.suggested_credit_id ?? undefined,
+      isMatched: row.is_matched,
+    }
+  })
 
   return (
     <div className="min-h-screen bg-[#FBF7F1]">
@@ -55,6 +91,7 @@ export default async function BuchhaltungPage() {
           initialGroups={groups ?? []}
           initialFiscalYears={fiscalYears ?? []}
           initialJournalEntries={journalEntries ?? []}
+          initialPendingTransactions={initialPending}
           isAdmin={profile.role === 'admin'}
         />
       </main>
