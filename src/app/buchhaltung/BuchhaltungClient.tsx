@@ -498,140 +498,144 @@ function KontoübersichtTab({ accounts, journalEntries, selectedFiscalYear }: {
   const selectedAccounts = accounts.filter(a => selectedIds.includes(a.id))
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
 
-        {/* ── Konten-Auswahl ── */}
-        <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden flex flex-col">
-          <div className="px-4 py-3 border-b border-[#E1D6C2] flex items-center justify-between">
-            <h2 className="font-semibold text-sm text-[#2A2622]">Konten wählen</h2>
+      {/* ── Konten-Auswahl ── */}
+      <div className="bg-white rounded-2xl border border-[#E1D6C2] flex flex-col" style={{ maxHeight: '75vh' }}>
+        {/* Header – gleiche Höhe wie der rechte Panel-Header */}
+        <div className="px-4 py-3 border-b border-[#E1D6C2] flex items-center justify-between shrink-0">
+          <h2 className="font-semibold text-sm text-[#2A2622]">Konten wählen</h2>
+          <div className="flex items-center gap-2">
             <button onClick={toggleAll} className="text-xs text-[#6B8E7F] hover:underline">
               {selectedIds.length === accounts.length ? 'Alle abwählen' : 'Alle wählen'}
             </button>
+            {selectedIds.length > 0 && (
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+              >
+                <Printer size={12} /> PDF
+              </button>
+            )}
           </div>
-          <div className="px-3 py-2 border-b border-[#E1D6C2]">
-            <div className="flex items-center gap-2 bg-[#F7F2EC] rounded-lg px-3 py-1.5">
-              <Search size={13} className="text-[#7A6E60]" />
-              <input
-                value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Suchen…"
-                className="bg-transparent text-sm flex-1 outline-none text-[#2A2622] placeholder:text-[#B0A898]"
-              />
-            </div>
+        </div>
+        {/* Suche */}
+        <div className="px-3 py-2 border-b border-[#E1D6C2] shrink-0">
+          <div className="flex items-center gap-2 bg-[#F7F2EC] rounded-lg px-3 py-1.5">
+            <Search size={13} className="text-[#7A6E60]" />
+            <input
+              value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Suchen…"
+              className="bg-transparent text-sm flex-1 outline-none text-[#2A2622] placeholder:text-[#B0A898]"
+            />
           </div>
-          <div className="overflow-y-auto flex-1 max-h-[480px]">
-            {(['aktiv','passiv','ertrag','aufwand'] as AccountType[]).map(type => {
-              const list = grouped[type]
-              if (list.length === 0) return null
+        </div>
+        {/* Kontenliste scrollbar */}
+        <div className="overflow-y-auto flex-1">
+          {(['aktiv','passiv','ertrag','aufwand'] as AccountType[]).map(type => {
+            const list = grouped[type]
+            if (list.length === 0) return null
+            return (
+              <div key={type}>
+                <div className="px-4 py-1.5 bg-[#F4EDE2] text-xs font-semibold text-[#7A6E60] uppercase tracking-wide sticky top-0">
+                  {TYPE_LABELS_FULL[type]}
+                </div>
+                {list.map(a => (
+                  <label key={a.id} className="flex items-center gap-3 px-4 py-2 hover:bg-[#FDFAF6] cursor-pointer border-b border-[#F7F2EC] last:border-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(a.id)}
+                      onChange={() => toggle(a.id)}
+                      className="accent-[#6B8E7F] w-4 h-4 shrink-0"
+                    />
+                    <span className="font-mono text-xs text-[#7A6E60] w-10 shrink-0">{a.number}</span>
+                    <span className="text-sm text-[#2A2622] truncate">{a.name}</span>
+                  </label>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ── Buchungsansicht ── */}
+      <div className="lg:col-span-2 flex flex-col" style={{ maxHeight: '75vh' }}>
+        {selectedIds.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-[#E1D6C2] p-12 text-center flex-1 flex flex-col items-center justify-center">
+            <FileText size={32} className="text-[#C8BBA8] mb-3" />
+            <p className="text-sm text-[#7A6E60]">Bitte links ein oder mehrere Konten wählen</p>
+          </div>
+        ) : (
+          /* Scrollbarer Bereich für Kontoauszüge */
+          <div className="overflow-y-auto flex-1 space-y-4 pr-1">
+            {selectedAccounts.map(account => {
+              const rows = buildRows(account)
+              const totalSoll  = rows.reduce((s, r) => s + (r.soll  ?? 0), 0)
+              const totalHaben = rows.reduce((s, r) => s + (r.haben ?? 0), 0)
+              const finalSaldo = rows.at(-1)?.saldo ?? 0
+
               return (
-                <div key={type}>
-                  <div className="px-4 py-1.5 bg-[#F4EDE2] text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">
-                    {TYPE_LABELS_FULL[type]}
+                <div key={account.id} className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
+                  {/* Konto-Header */}
+                  <div className="flex items-center gap-3 px-4 py-3 bg-[#F4EDE2] border-b border-[#E1D6C2]">
+                    <span className="font-mono font-bold text-[#2A2622] shrink-0">{account.number}</span>
+                    <span className="font-semibold text-[#2A2622] flex-1 truncate">{account.name}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#EDE7DA] text-[#7A6E60] shrink-0">{TYPE_LABELS_FULL[account.type]}</span>
+                    <span className={`text-sm font-bold shrink-0 ${finalSaldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>
+                      CHF {fmt(finalSaldo)}
+                    </span>
                   </div>
-                  {list.map(a => (
-                    <label key={a.id} className="flex items-center gap-3 px-4 py-2 hover:bg-[#FDFAF6] cursor-pointer border-b border-[#F7F2EC] last:border-0">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(a.id)}
-                        onChange={() => toggle(a.id)}
-                        className="accent-[#6B8E7F] w-4 h-4 shrink-0"
-                      />
-                      <span className="font-mono text-xs text-[#7A6E60] w-10 shrink-0">{a.number}</span>
-                      <span className="text-sm text-[#2A2622] truncate">{a.name}</span>
-                    </label>
-                  ))}
+
+                  {rows.length === 0 ? (
+                    <p className="text-sm text-[#7A6E60] text-center py-8">Keine Buchungen im gewählten Geschäftsjahr</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="text-sm" style={{ minWidth: '480px', width: '100%' }}>
+                        <thead>
+                          <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
+                            <th className="text-left px-4 py-2 w-[90px] shrink-0">Datum</th>
+                            <th className="text-left py-2">Beschreibung</th>
+                            <th className="text-left py-2 w-[130px] hidden lg:table-cell">Gegenkonto</th>
+                            <th className="text-right py-2 w-[80px]">Soll</th>
+                            <th className="text-right py-2 w-[80px]">Haben</th>
+                            <th className="text-right py-2 pr-4 w-[80px]">Saldo</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map(({ entry, soll, haben, saldo }, i) => (
+                            <tr key={entry.id ?? i} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6]">
+                              <td className="px-4 py-2 text-xs text-[#7A6E60] whitespace-nowrap">{fmtDate(entry.date)}</td>
+                              <td className="py-2 pr-2 text-[#2A2622] text-xs max-w-[160px] truncate">{entry.description}</td>
+                              <td className="py-2 pr-2 text-xs text-[#7A6E60] hidden lg:table-cell truncate max-w-[130px]">{gegenkonto(entry, account)}</td>
+                              <td className="py-2 text-right font-mono text-xs text-[#2A2622] w-[80px]">
+                                {soll != null ? fmt(soll) : ''}
+                              </td>
+                              <td className="py-2 text-right font-mono text-xs text-[#2A2622] w-[80px]">
+                                {haben != null ? fmt(haben) : ''}
+                              </td>
+                              <td className={`py-2 pr-4 text-right font-mono text-xs font-semibold w-[80px] ${saldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>
+                                {fmt(saldo)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-[#F7F2EC] border-t border-[#E1D6C2] font-semibold text-xs">
+                            <td colSpan={2} className="px-4 py-2">Total</td>
+                            <td className="hidden lg:table-cell" />
+                            <td className="py-2 text-right font-mono w-[80px]">{fmt(totalSoll)}</td>
+                            <td className="py-2 text-right font-mono w-[80px]">{fmt(totalHaben)}</td>
+                            <td className={`py-2 pr-4 text-right font-mono font-bold w-[80px] ${finalSaldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>{fmt(finalSaldo)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )
             })}
           </div>
-        </div>
-
-        {/* ── Übersicht ── */}
-        <div className="lg:col-span-2 space-y-4">
-          {selectedIds.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-[#E1D6C2] p-12 text-center">
-              <FileText size={32} className="text-[#C8BBA8] mx-auto mb-3" />
-              <p className="text-sm text-[#7A6E60]">Bitte links ein oder mehrere Konten wählen</p>
-            </div>
-          ) : (
-            <>
-              <div className="flex justify-end">
-                <button
-                  onClick={handlePrint}
-                  className="flex items-center gap-2 bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors"
-                >
-                  <Printer size={15} /> PDF / Drucken
-                </button>
-              </div>
-
-              {selectedAccounts.map(account => {
-                const rows = buildRows(account)
-                const totalSoll  = rows.reduce((s, r) => s + (r.soll  ?? 0), 0)
-                const totalHaben = rows.reduce((s, r) => s + (r.haben ?? 0), 0)
-                const finalSaldo = rows.at(-1)?.saldo ?? 0
-
-                return (
-                  <div key={account.id} className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
-                    {/* Account header */}
-                    <div className="flex items-center gap-3 px-5 py-3 bg-[#F4EDE2] border-b border-[#E1D6C2]">
-                      <span className="font-mono font-bold text-[#2A2622]">{account.number}</span>
-                      <span className="font-semibold text-[#2A2622] flex-1">{account.name}</span>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-[#EDE7DA] text-[#7A6E60]">{TYPE_LABELS_FULL[account.type]}</span>
-                      <span className={`text-sm font-bold ${finalSaldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>
-                        CHF {fmt(finalSaldo)}
-                      </span>
-                    </div>
-
-                    {rows.length === 0 ? (
-                      <p className="text-sm text-[#7A6E60] text-center py-8">Keine Buchungen im gewählten Geschäftsjahr</p>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
-                              <th className="text-left px-4 py-2 w-24">Datum</th>
-                              <th className="text-left py-2">Beschreibung</th>
-                              <th className="text-left py-2 hidden md:table-cell">Gegenkonto</th>
-                              <th className="text-right py-2 pr-4">Soll</th>
-                              <th className="text-right py-2 pr-4">Haben</th>
-                              <th className="text-right py-2 pr-4">Saldo</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {rows.map(({ entry, soll, haben, saldo }, i) => (
-                              <tr key={entry.id ?? i} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6]">
-                                <td className="px-4 py-2 text-xs text-[#7A6E60] whitespace-nowrap">{fmtDate(entry.date)}</td>
-                                <td className="py-2 pr-3 text-[#2A2622]">{entry.description}</td>
-                                <td className="py-2 pr-3 text-xs text-[#7A6E60] hidden md:table-cell whitespace-nowrap">{gegenkonto(entry, account)}</td>
-                                <td className="py-2 pr-4 text-right font-mono text-xs text-[#2A2622]">
-                                  {soll != null ? fmt(soll) : ''}
-                                </td>
-                                <td className="py-2 pr-4 text-right font-mono text-xs text-[#2A2622]">
-                                  {haben != null ? fmt(haben) : ''}
-                                </td>
-                                <td className={`py-2 pr-4 text-right font-mono text-xs font-semibold ${saldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>
-                                  {fmt(saldo)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot>
-                            <tr className="bg-[#F7F2EC] border-t border-[#E1D6C2] font-semibold text-xs">
-                              <td colSpan={3} className="px-4 py-2">Total</td>
-                              <td className="py-2 pr-4 text-right font-mono">{fmt(totalSoll)}</td>
-                              <td className="py-2 pr-4 text-right font-mono">{fmt(totalHaben)}</td>
-                              <td className={`py-2 pr-4 text-right font-mono font-bold ${finalSaldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>{fmt(finalSaldo)}</td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </>
-          )}
-        </div>
+        )}
       </div>
     </div>
   )
