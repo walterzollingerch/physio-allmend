@@ -118,6 +118,80 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
     }
   }
 
+  // Payment modal (gesendet → bezahlt mit Buchungseintrag)
+  const [showPaymentModal, setShowPaymentModal]   = useState(false)
+  const [paymentBankId, setPaymentBankId]         = useState('')
+  const [paymentFordId, setPaymentFordId]         = useState('')
+  const [paymentDate, setPaymentDate]             = useState('')
+  const [paymentLoading, setPaymentLoading]       = useState(false)
+  const [existingFordEntries, setExistingFordEntries] = useState<{ account_id: string; account_number: string; account_name: string }[]>([])
+
+  async function openPaymentModal() {
+    const today = new Date().toISOString().slice(0, 10)
+    setPaymentDate(today)
+    setPaymentLoading(true)
+    setShowPaymentModal(true)
+
+    // Forderungskonto aus bestehenden Buchungen dieser Rechnung ermitteln
+    const { data: entries } = await supabase
+      .from('journal_entries')
+      .select('debit_account_id, debit_account:accounts!debit_account_id(id,number,name,type)')
+      .eq('invoice_id', inv.id)
+
+    const fordAccounts: { account_id: string; account_number: string; account_name: string }[] = []
+    for (const e of (entries ?? []) as { debit_account_id: string; debit_account: { id: string; number: string; name: string; type: string } | null }[]) {
+      const acc = e.debit_account
+      if (acc && acc.type === 'aktiv' && acc.number.startsWith('11') && !fordAccounts.find(f => f.account_id === acc.id)) {
+        fordAccounts.push({ account_id: acc.id, account_number: acc.number, account_name: acc.name })
+      }
+    }
+    setExistingFordEntries(fordAccounts)
+
+    // Defaults setzen
+    if (fordAccounts.length === 1) setPaymentFordId(fordAccounts[0].account_id)
+    else setPaymentFordId('')
+
+    const defaultBank = accounts.find(a => a.number.startsWith('102') || a.number.startsWith('100'))
+    if (defaultBank && !paymentBankId) setPaymentBankId(defaultBank.id)
+
+    setPaymentLoading(false)
+  }
+
+  async function handlePayment() {
+    if (!paymentBankId || !paymentFordId) return
+    setError(null)
+    start(async () => {
+      const bankAcc = accounts.find(a => a.id === paymentBankId)
+      const fordAcc = accounts.find(a => a.id === paymentFordId)
+      if (!bankAcc || !fordAcc) { setError('Konto nicht gefunden'); return }
+
+      // Buchungseintrag: Bank (Soll) / Forderung (Haben)
+      await supabase.from('journal_entries').insert({
+        date: paymentDate,
+        description: `Zahlung ${inv.number} – ${inv.customer_name}`,
+        debit_account_id: paymentBankId,
+        credit_account_id: paymentFordId,
+        amount: total,
+        invoice_id: inv.id,
+      })
+
+      // Salden anpassen
+      const bankDelta = total   // aktiv Soll → +
+      const fordDelta = -total  // aktiv Haben → -
+      await Promise.all([
+        supabase.from('accounts').update({ balance: Number(bankAcc.balance) + bankDelta }).eq('id', paymentBankId),
+        supabase.from('accounts').update({ balance: Number(fordAcc.balance) + fordDelta }).eq('id', paymentFordId),
+      ])
+
+      // Rechnungsstatus auf bezahlt setzen
+      await supabase.from('invoices').update({ status: 'bezahlt' }).eq('id', inv.id)
+      setInv(prev => ({ ...prev, status: 'bezahlt' }))
+      setShowPaymentModal(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    })
+  }
+
   // Reset modal (bezahlt → gesendet)
   const [showResetModal, setShowResetModal]       = useState(false)
   const [resetEntries, setResetEntries]           = useState<{ id: string; date: string; description: string; amount: number; debit: string; credit: string }[]>([])
@@ -399,7 +473,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           )}
           {inv.status === 'gesendet' && (
             <button
-              onClick={() => save('bezahlt')}
+              onClick={openPaymentModal}
               disabled={isPending}
               className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded-lg transition-colors"
             >
@@ -680,6 +754,111 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                 ))}
               </ul>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Payment Modal (gesendet → bezahlt) ─────────────── */}
+      {showPaymentModal && (
+        <Modal title="Zahlung buchen & als bezahlt markieren" onClose={() => setShowPaymentModal(false)}>
+          <div className="space-y-4">
+            {paymentLoading ? (
+              <p className="text-sm text-[#7A6E60] text-center py-4">Wird geladen…</p>
+            ) : (
+              <>
+                <div className="bg-[#F7F2EC] rounded-xl px-4 py-3 flex justify-between items-center">
+                  <span className="text-sm text-[#7A6E60]">Zahlungsbetrag</span>
+                  <span className="font-bold text-[#2A2622]">CHF {fmt(total)}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Zahlungsdatum *">
+                    <input
+                      type="date"
+                      value={paymentDate}
+                      onChange={e => setPaymentDate(e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                  <div />
+                </div>
+
+                <Field label="Bankkonto (Eingang) *">
+                  <select value={paymentBankId} onChange={e => setPaymentBankId(e.target.value)} className={inp} autoFocus>
+                    <option value="">— Konto wählen —</option>
+                    {accounts.filter(a => a.type === 'aktiv' && (a.number.startsWith('10') || a.number.startsWith('11'))).map(a => (
+                      <option key={a.id} value={a.id}>{a.number} {a.name}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="Forderungskonto (Haben) *">
+                  {existingFordEntries.length > 0 ? (
+                    <select value={paymentFordId} onChange={e => setPaymentFordId(e.target.value)} className={inp}>
+                      <option value="">— Konto wählen —</option>
+                      {existingFordEntries.map(f => (
+                        <option key={f.account_id} value={f.account_id}>{f.account_number} {f.account_name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select value={paymentFordId} onChange={e => setPaymentFordId(e.target.value)} className={inp}>
+                      <option value="">— Konto wählen —</option>
+                      {accounts.filter(a => a.number.startsWith('11')).map(a => (
+                        <option key={a.id} value={a.id}>{a.number} {a.name}</option>
+                      ))}
+                    </select>
+                  )}
+                  {existingFordEntries.length > 0 && (
+                    <p className="text-xs text-[#7A6E60] mt-1">Aus bestehenden Buchungen dieser Rechnung ermittelt.</p>
+                  )}
+                </Field>
+
+                {paymentBankId && paymentFordId && (
+                  <div className="rounded-lg border border-[#E1D6C2] overflow-hidden text-xs">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-[#F7F2EC] text-[#7A6E60]">
+                          <th className="text-left px-3 py-2">Buchungsvorschau</th>
+                          <th className="text-left py-2">Soll</th>
+                          <th className="text-left py-2">Haben</th>
+                          <th className="text-right py-2 pr-3">CHF</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-t border-[#F7F2EC]">
+                          <td className="px-3 py-1.5 text-[#2A2622] font-medium">Zahlung {inv.number}</td>
+                          <td className="py-1.5 text-[#4A4138]">
+                            {(() => { const a = accounts.find(x => x.id === paymentBankId); return a ? `${a.number} ${a.name}` : '' })()}
+                          </td>
+                          <td className="py-1.5 text-[#4A4138]">
+                            {(() => { const a = accounts.find(x => x.id === paymentFordId); return a ? `${a.number} ${a.name}` : '' })()}
+                          </td>
+                          <td className="py-1.5 pr-3 text-right font-medium text-[#2A2622]">{fmt(total)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+
+            {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handlePayment}
+                disabled={isPending || !paymentBankId || !paymentFordId || !paymentDate || paymentLoading}
+                className="flex-1 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {isPending ? 'Wird gebucht…' : 'Zahlung buchen & abschliessen'}
+              </button>
+            </div>
           </div>
         </Modal>
       )}
