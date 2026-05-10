@@ -1896,7 +1896,8 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
       const newInvoiceId = linkDebitor && selectedInvoice ? selectedInvoice.id : null
       const oldInvoiceId = editingEntry.invoice_id ?? null
 
-      const { data: updatedRows, error: err } = await supabase
+      // Update – getrennt von Select (RLS verhindert sonst manchmal den Select nach Update)
+      const { error: err } = await supabase
         .from('journal_entries')
         .update({
           date, description,
@@ -1907,12 +1908,30 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
           invoice_id: newInvoiceId,
         })
         .eq('id', editingEntry.id)
-        .select(JE_SELECT)
       if (err) { setError(err.message); return }
-      const updated = Array.isArray(updatedRows) ? updatedRows[0] : updatedRows
-      if (!updated) { setError('Buchung nicht gefunden'); return }
 
-      onJournalEntriesChange(prev => prev.map(e => e.id === editingEntry.id ? updated as JournalEntry : e))
+      // Zeile erneut laden; falls RLS den Select blockiert → lokalen State verwenden
+      const { data: refetched } = await supabase
+        .from('journal_entries')
+        .select(JE_SELECT)
+        .eq('id', editingEntry.id)
+        .maybeSingle()
+
+      const debitAccObj  = accounts.find(a => a.id === debitId)
+      const creditAccObj = accounts.find(a => a.id === creditId)
+      const updated: JournalEntry = (refetched as JournalEntry | null) ?? {
+        ...editingEntry,
+        date, description,
+        debit_account_id:  debitId,
+        credit_account_id: creditId,
+        amount: amt,
+        fiscal_year_id: selectedFiscalYearId,
+        invoice_id: newInvoiceId,
+        debit_account:  debitAccObj  ? { number: debitAccObj.number,  name: debitAccObj.name,  type: debitAccObj.type  as never } : editingEntry.debit_account,
+        credit_account: creditAccObj ? { number: creditAccObj.number, name: creditAccObj.name, type: creditAccObj.type as never } : editingEntry.credit_account,
+      }
+
+      onJournalEntriesChange(prev => prev.map(e => e.id === editingEntry.id ? updated : e))
       onAccountsChange(prev => prev.map(a => a.id in newBalances ? { ...a, balance: newBalances[a.id] } : a))
 
       // Rechnungsstatus anpassen
