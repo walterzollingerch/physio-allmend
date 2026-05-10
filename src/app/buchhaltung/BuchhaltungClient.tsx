@@ -560,7 +560,7 @@ function KontoübersichtTab({ accounts, journalEntries, selectedFiscalYear }: {
       </div>
 
       {/* ── Buchungsansicht ── */}
-      <div className="lg:col-span-2 flex flex-col" style={{ maxHeight: '75vh' }}>
+      <div className="lg:col-span-2 flex flex-col overflow-hidden" style={{ maxHeight: '75vh' }}>
         {selectedIds.length === 0 ? (
           <div className="bg-white rounded-2xl border border-[#E1D6C2] p-12 text-center flex-1 flex flex-col items-center justify-center">
             <FileText size={32} className="text-[#C8BBA8] mb-3" />
@@ -591,30 +591,38 @@ function KontoübersichtTab({ accounts, journalEntries, selectedFiscalYear }: {
                     <p className="text-sm text-[#7A6E60] text-center py-8">Keine Buchungen im gewählten Geschäftsjahr</p>
                   ) : (
                     <div className="overflow-x-auto">
-                      <table className="text-sm" style={{ minWidth: '480px', width: '100%' }}>
+                      <table className="text-sm table-fixed w-full" style={{ minWidth: '500px' }}>
+                        <colgroup>
+                          <col style={{ width: '82px' }} />
+                          <col />
+                          <col style={{ width: '82px' }} className="hidden lg:table-column" />
+                          <col style={{ width: '88px' }} />
+                          <col style={{ width: '88px' }} />
+                          <col style={{ width: '92px' }} />
+                        </colgroup>
                         <thead>
                           <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
-                            <th className="text-left px-4 py-2 w-[90px] shrink-0">Datum</th>
+                            <th className="text-left px-4 py-2">Datum</th>
                             <th className="text-left py-2">Beschreibung</th>
-                            <th className="text-left py-2 w-[130px] hidden lg:table-cell">Gegenkonto</th>
-                            <th className="text-right py-2 w-[80px]">Soll</th>
-                            <th className="text-right py-2 w-[80px]">Haben</th>
-                            <th className="text-right py-2 pr-4 w-[80px]">Saldo</th>
+                            <th className="text-left py-2 hidden lg:table-cell">Gegenkonto</th>
+                            <th className="text-right py-2 px-2">Soll</th>
+                            <th className="text-right py-2 px-2">Haben</th>
+                            <th className="text-right py-2 pr-4">Saldo</th>
                           </tr>
                         </thead>
                         <tbody>
                           {rows.map(({ entry, soll, haben, saldo }, i) => (
                             <tr key={entry.id ?? i} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6]">
                               <td className="px-4 py-2 text-xs text-[#7A6E60] whitespace-nowrap">{fmtDate(entry.date)}</td>
-                              <td className="py-2 pr-2 text-[#2A2622] text-xs max-w-[160px] truncate">{entry.description}</td>
-                              <td className="py-2 pr-2 text-xs text-[#7A6E60] hidden lg:table-cell truncate max-w-[130px]">{gegenkonto(entry, account)}</td>
-                              <td className="py-2 text-right font-mono text-xs text-[#2A2622] w-[80px]">
+                              <td className="py-2 pr-2 text-[#2A2622] text-xs truncate overflow-hidden">{entry.description}</td>
+                              <td className="py-2 pr-1 text-xs text-[#7A6E60] hidden lg:table-cell truncate overflow-hidden">{gegenkonto(entry, account)}</td>
+                              <td className="py-2 px-2 text-right font-mono text-xs text-[#2A2622]">
                                 {soll != null ? fmt(soll) : ''}
                               </td>
-                              <td className="py-2 text-right font-mono text-xs text-[#2A2622] w-[80px]">
+                              <td className="py-2 px-2 text-right font-mono text-xs text-[#2A2622]">
                                 {haben != null ? fmt(haben) : ''}
                               </td>
-                              <td className={`py-2 pr-4 text-right font-mono text-xs font-semibold w-[80px] ${saldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>
+                              <td className={`py-2 pr-4 text-right font-mono text-xs font-semibold ${saldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>
                                 {fmt(saldo)}
                               </td>
                             </tr>
@@ -624,9 +632,9 @@ function KontoübersichtTab({ accounts, journalEntries, selectedFiscalYear }: {
                           <tr className="bg-[#F7F2EC] border-t border-[#E1D6C2] font-semibold text-xs">
                             <td colSpan={2} className="px-4 py-2">Total</td>
                             <td className="hidden lg:table-cell" />
-                            <td className="py-2 text-right font-mono w-[80px]">{fmt(totalSoll)}</td>
-                            <td className="py-2 text-right font-mono w-[80px]">{fmt(totalHaben)}</td>
-                            <td className={`py-2 pr-4 text-right font-mono font-bold w-[80px] ${finalSaldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>{fmt(finalSaldo)}</td>
+                            <td className="py-2 px-2 text-right font-mono">{fmt(totalSoll)}</td>
+                            <td className="py-2 px-2 text-right font-mono">{fmt(totalHaben)}</td>
+                            <td className={`py-2 pr-4 text-right font-mono font-bold ${finalSaldo >= 0 ? 'text-[#2A2622]' : 'text-red-600'}`}>{fmt(finalSaldo)}</td>
                           </tr>
                         </tfoot>
                       </table>
