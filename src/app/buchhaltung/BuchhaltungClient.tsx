@@ -1546,6 +1546,26 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
 
   const isEditMode = editingEntry !== null
 
+  // ── Sortierung ──────────────────────────────────────────────
+  type SortKey = 'date' | 'description' | 'debit' | 'credit' | 'amount'
+  const [sortKey, setSortKey]   = useState<SortKey>('date')
+  const [sortAsc, setSortAsc]   = useState(false)
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortAsc(p => !p)
+    else { setSortKey(key); setSortAsc(false) }
+  }
+
+  const sortedEntries = [...journalEntries].sort((a, b) => {
+    let cmp = 0
+    if (sortKey === 'date')        cmp = a.date.localeCompare(b.date)
+    else if (sortKey === 'description') cmp = a.description.localeCompare(b.description)
+    else if (sortKey === 'debit')  cmp = (a.debit_account?.number ?? '').localeCompare(b.debit_account?.number ?? '')
+    else if (sortKey === 'credit') cmp = (a.credit_account?.number ?? '').localeCompare(b.credit_account?.number ?? '')
+    else if (sortKey === 'amount') cmp = Number(a.amount) - Number(b.amount)
+    return sortAsc ? cmp : -cmp
+  })
+
   function openNew() {
     setEditingEntry(null)
     setDate(defaultDate()); setDesc(''); setDebitId(''); setCreditId(''); setAmount('')
@@ -2147,65 +2167,108 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
+      <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden flex flex-col" style={{ maxHeight: '60vh' }}>
         {journalEntries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-[#7A6E60]">
             <ReceiptText size={40} className="mb-3 opacity-30" />
             <p className="text-sm">Noch keine Buchungen für dieses Geschäftsjahr</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
-                <th className="text-left px-5 py-3">Datum</th>
-                <th className="text-left py-3">Beschreibung</th>
-                <th className="text-left py-3 hidden sm:table-cell">Soll</th>
-                <th className="text-left py-3 hidden sm:table-cell">Haben</th>
-                <th className="text-right py-3">Betrag (CHF)</th>
-                <th className="py-3 hidden md:table-cell text-left">Jahr</th>
-                <th className="w-16 pr-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {journalEntries.map(entry => (
-                <tr key={entry.id} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] group">
-                  <td className="px-5 py-3 text-[#4A4138] whitespace-nowrap">{fmtDate(entry.date)}</td>
-                  <td className="py-3 pr-4 text-[#2A2622] font-medium">{entry.description}</td>
-                  <td className="py-3 pr-4 hidden sm:table-cell">
-                    <span className="font-mono text-xs text-[#7A6E60]">{entry.debit_account?.number}</span>
-                    <span className="text-xs text-[#4A4138] ml-1">{entry.debit_account?.name}</span>
-                  </td>
-                  <td className="py-3 pr-4 hidden sm:table-cell">
-                    <span className="font-mono text-xs text-[#7A6E60]">{entry.credit_account?.number}</span>
-                    <span className="text-xs text-[#4A4138] ml-1">{entry.credit_account?.name}</span>
-                  </td>
-                  <td className="py-3 text-right font-semibold text-[#2A2622]">{fmt(Number(entry.amount))}</td>
-                  <td className="py-3 pr-3 hidden md:table-cell">
-                    {entry.fiscal_year ? (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-[#F4EDE2] text-[#7A6E60] whitespace-nowrap">
-                        {entry.fiscal_year.name}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-[#E1D6C2]">—</span>
-                    )}
-                  </td>
-                  <td className="py-3 pr-3">
-                    {deleteConfirm === entry.id ? (
-                      <div className="flex gap-1 justify-end">
-                        <button onClick={() => handleDelete(entry)} disabled={isPending} className="text-red-600 hover:text-red-700 p-1"><Check size={13} /></button>
-                        <button onClick={() => setDeleteConfirm(null)} className="text-[#7A6E60] p-1"><X size={13} /></button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => openEdit(entry)} className="text-[#7A6E60] hover:text-[#6B8E7F] p-1"><Pencil size={13} /></button>
-                        <button onClick={() => setDeleteConfirm(entry.id)} className="text-[#7A6E60] hover:text-red-600 p-1"><Trash2 size={13} /></button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            {/* Sticky header */}
+            <div className="shrink-0 overflow-x-auto">
+              <table className="w-full text-sm table-fixed" style={{ minWidth: '700px' }}>
+                <colgroup>
+                  <col style={{ width: '88px' }} />
+                  <col />
+                  <col style={{ width: '160px' }} className="hidden sm:table-column" />
+                  <col style={{ width: '160px' }} className="hidden sm:table-column" />
+                  <col style={{ width: '110px' }} />
+                  <col style={{ width: '90px' }} className="hidden md:table-column" />
+                  <col style={{ width: '64px' }} />
+                </colgroup>
+                <thead>
+                  <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
+                    {([
+                      { key: 'date',        label: 'Datum',        cls: 'px-5 py-3 text-left' },
+                      { key: 'description', label: 'Beschreibung', cls: 'py-3 text-left' },
+                      { key: 'debit',       label: 'Soll',         cls: 'py-3 text-left hidden sm:table-cell' },
+                      { key: 'credit',      label: 'Haben',        cls: 'py-3 text-left hidden sm:table-cell' },
+                      { key: 'amount',      label: 'Betrag (CHF)', cls: 'py-3 pr-4 text-right' },
+                    ] as { key: SortKey; label: string; cls: string }[]).map(col => (
+                      <th key={col.key} className={col.cls}>
+                        <button
+                          onClick={() => toggleSort(col.key)}
+                          className="flex items-center gap-1 hover:text-[#2A2622] transition-colors w-full justify-end [&:not(.text-right)]:justify-start"
+                          style={{ justifyContent: col.cls.includes('text-right') ? 'flex-end' : 'flex-start' }}
+                        >
+                          {col.label}
+                          <span className="text-[10px] leading-none">
+                            {sortKey === col.key ? (sortAsc ? '▲' : '▼') : '⇅'}
+                          </span>
+                        </button>
+                      </th>
+                    ))}
+                    <th className="py-3 pl-4 hidden md:table-cell text-left text-xs text-[#7A6E60] uppercase tracking-wide">Jahr</th>
+                    <th className="w-16 pr-3"></th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+            {/* Scrollable body */}
+            <div className="overflow-y-auto overflow-x-auto flex-1">
+              <table className="w-full text-sm table-fixed" style={{ minWidth: '700px' }}>
+                <colgroup>
+                  <col style={{ width: '88px' }} />
+                  <col />
+                  <col style={{ width: '160px' }} className="hidden sm:table-column" />
+                  <col style={{ width: '160px' }} className="hidden sm:table-column" />
+                  <col style={{ width: '110px' }} />
+                  <col style={{ width: '90px' }} className="hidden md:table-column" />
+                  <col style={{ width: '64px' }} />
+                </colgroup>
+                <tbody>
+                  {sortedEntries.map(entry => (
+                    <tr key={entry.id} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] group">
+                      <td className="px-5 py-2.5 text-[#4A4138] whitespace-nowrap text-sm">{fmtDate(entry.date)}</td>
+                      <td className="py-2.5 pr-3 text-[#2A2622] font-medium text-sm truncate overflow-hidden">{entry.description}</td>
+                      <td className="py-2.5 pr-3 hidden sm:table-cell truncate overflow-hidden">
+                        <span className="font-mono text-xs text-[#7A6E60]">{entry.debit_account?.number}</span>
+                        <span className="text-xs text-[#4A4138] ml-1">{entry.debit_account?.name}</span>
+                      </td>
+                      <td className="py-2.5 pr-3 hidden sm:table-cell truncate overflow-hidden">
+                        <span className="font-mono text-xs text-[#7A6E60]">{entry.credit_account?.number}</span>
+                        <span className="text-xs text-[#4A4138] ml-1">{entry.credit_account?.name}</span>
+                      </td>
+                      <td className="py-2.5 pr-4 text-right font-semibold text-[#2A2622] text-sm">{fmt(Number(entry.amount))}</td>
+                      <td className="py-2.5 pl-4 hidden md:table-cell">
+                        {entry.fiscal_year ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-[#F4EDE2] text-[#7A6E60] whitespace-nowrap">
+                            {entry.fiscal_year.name}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-[#E1D6C2]">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-3">
+                        {deleteConfirm === entry.id ? (
+                          <div className="flex gap-1 justify-end">
+                            <button onClick={() => handleDelete(entry)} disabled={isPending} className="text-red-600 hover:text-red-700 p-1"><Check size={13} /></button>
+                            <button onClick={() => setDeleteConfirm(null)} className="text-[#7A6E60] p-1"><X size={13} /></button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => openEdit(entry)} className="text-[#7A6E60] hover:text-[#6B8E7F] p-1"><Pencil size={13} /></button>
+                            <button onClick={() => setDeleteConfirm(entry.id)} className="text-[#7A6E60] hover:text-red-600 p-1"><Trash2 size={13} /></button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
