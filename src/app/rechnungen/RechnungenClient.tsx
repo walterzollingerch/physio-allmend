@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { FileText, Search, X, Upload, Check, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -280,6 +281,7 @@ export default function RechnungenClient({
   totalOffen: number
   totalBezahlt: number
 }) {
+  const router = useRouter()
   const [filter, setFilter]         = useState<FilterKey>('alle')
   const [query, setQuery]           = useState('')
   const [showImport, setShowImport] = useState(false)
@@ -415,16 +417,14 @@ export default function RechnungenClient({
               {visible.map(inv => {
                 const st = STATUS_LABELS[inv.status] ?? STATUS_LABELS.entwurf
                 return (
-                  <tr key={inv.id} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6]">
-                    <td className="px-5 py-3">
-                      <Link href={`/rechnungen/${inv.id}`} className="font-mono font-semibold text-[#6B8E7F] hover:underline">
-                        {inv.number}
-                      </Link>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <Link href={`/rechnungen/${inv.id}`} className="font-medium text-[#2A2622] hover:text-[#6B8E7F]">
-                        {inv.customer_name || <span className="text-[#7A6E60] italic">Kein Name</span>}
-                      </Link>
+                  <tr
+                    key={inv.id}
+                    onClick={() => router.push(`/rechnungen/${inv.id}`)}
+                    className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] cursor-pointer"
+                  >
+                    <td className="px-5 py-3 font-mono font-semibold text-[#6B8E7F]">{inv.number}</td>
+                    <td className="py-3 pr-4 font-medium text-[#2A2622]">
+                      {inv.customer_name || <span className="text-[#7A6E60] italic">Kein Name</span>}
                     </td>
                     <td className="py-3 pr-4 text-[#7A6E60] text-xs hidden md:table-cell">
                       {inv.reference || <span className="text-[#C5B99A]">—</span>}
