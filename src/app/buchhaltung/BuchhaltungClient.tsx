@@ -65,6 +65,7 @@ export interface InvoiceForPayment {
   discount_type: string
   discount_value: number
   reference: string | null
+  status?: string
 }
 
 interface PendingTransaction {
@@ -1565,17 +1566,18 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     setLoadingInvoices(true)
     const { data } = await supabase
       .from('invoices')
-      .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
-      .eq('status', 'gesendet')
+      .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
+      .in('status', ['entwurf', 'gesendet'])
+      .order('status')   // gesendet vor entwurf
       .order('number', { ascending: false })
     const list: InvoiceForPayment[] = (data ?? []).map((inv: {
       id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null
-      discount_type: string; discount_value: number; reference: string | null
+      status: string; discount_type: string; discount_value: number; reference: string | null
       invoice_items: { unit_price: number; quantity: number }[]
     }) => {
       const subtotal = (inv.invoice_items ?? []).reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
       const disc = inv.discount_type === 'percent' ? subtotal * Number(inv.discount_value) / 100 : Number(inv.discount_value)
-      return { id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc, discount_type: inv.discount_type, discount_value: inv.discount_value, reference: inv.reference ?? null }
+      return { id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc, discount_type: inv.discount_type, discount_value: inv.discount_value, reference: inv.reference ?? null, status: inv.status }
     })
     setOpenInvoices(list)
     setLoadingInvoices(false)
@@ -2409,7 +2411,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
               {loadingInvoices ? (
                 <p className="text-sm text-[#7A6E60] text-center py-10">Laden…</p>
               ) : openInvoices.length === 0 ? (
-                <p className="text-sm text-[#7A6E60] text-center py-10">Keine offenen Rechnungen</p>
+                <p className="text-sm text-[#7A6E60] text-center py-10">Keine unbezahlten Rechnungen gefunden</p>
               ) : (
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-[#F7F2EC]">
@@ -2424,7 +2426,8 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
                       .filter(inv =>
                         !invoiceSearch.trim() ||
                         inv.number.toLowerCase().includes(invoiceSearch.toLowerCase()) ||
-                        inv.customer_name.toLowerCase().includes(invoiceSearch.toLowerCase())
+                        inv.customer_name.toLowerCase().includes(invoiceSearch.toLowerCase()) ||
+                        (inv.reference ?? '').toLowerCase().includes(invoiceSearch.toLowerCase())
                       )
                       .map(inv => (
                         <tr
@@ -2434,7 +2437,12 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
                         >
                           <td className="px-4 py-2.5 font-mono font-semibold text-[#6B8E7F]">{inv.number}</td>
                           <td className="py-2.5 pr-3">
-                            <p className="font-medium text-[#2A2622]">{inv.customer_name}</p>
+                            <p className="font-medium text-[#2A2622] flex items-center gap-2">
+                              {inv.customer_name || <span className="italic text-[#7A6E60]">Kein Name</span>}
+                              {inv.status === 'entwurf' && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F4EDE2] text-[#7A6E60] font-medium">Entwurf</span>
+                              )}
+                            </p>
                             <p className="text-xs text-[#7A6E60]">
                               {fmtDate(inv.invoice_date)}{inv.due_date ? ` · Fällig ${fmtDate(inv.due_date)}` : ''}
                               {inv.reference && <span className="ml-2 font-mono text-[#6B8E7F]">{inv.reference}</span>}
