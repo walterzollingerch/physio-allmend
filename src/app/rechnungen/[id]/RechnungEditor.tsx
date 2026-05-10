@@ -3,7 +3,8 @@
 import { useState, useTransition, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Trash2, Save, Send, CheckCircle, XCircle, Search, UserRound, X, Archive, AlertTriangle, RotateCcw } from 'lucide-react'
+import { Plus, Trash2, Save, Send, CheckCircle, XCircle, Search, UserRound, X, Archive, AlertTriangle, RotateCcw, Printer } from 'lucide-react'
+import { openInvoicePrint } from '@/lib/invoice-print'
 
 type Status = 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
 
@@ -104,6 +105,18 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
   // Send modal
   const [showSendModal, setShowSendModal]         = useState(false)
   const [forderungsKontoId, setForderungsKontoId] = useState('')
+
+  // Print
+  const [printing, setPrinting] = useState(false)
+
+  async function handlePrint() {
+    setPrinting(true)
+    try {
+      await openInvoicePrint(inv, items)
+    } finally {
+      setPrinting(false)
+    }
+  }
 
   // Reset modal (bezahlt → gesendet)
   const [showResetModal, setShowResetModal]       = useState(false)
@@ -358,6 +371,15 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
               Löschen
             </button>
           )}
+          <button
+            onClick={handlePrint}
+            disabled={printing}
+            className="flex items-center gap-2 border border-[#E1D6C2] bg-white hover:bg-[#F7F2EC] text-[#4A4138] text-sm px-3 py-2 rounded-lg transition-colors"
+            title="PDF drucken / QR-Rechnung"
+          >
+            <Printer size={15} />
+            {printing ? 'Wird erstellt…' : 'PDF / QR-Rechnung'}
+          </button>
           <button
             onClick={() => save()}
             disabled={isPending}
