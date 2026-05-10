@@ -66,6 +66,7 @@ export interface InvoiceForPayment {
   total: number
   discount_type: string
   discount_value: number
+  rounding_diff?: number
   reference: string | null
   status?: string
 }
@@ -1588,19 +1589,20 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     if (entry.invoice_id) {
       supabase
         .from('invoices')
-        .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
+        .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, rounding_diff, reference, invoice_items(unit_price, quantity)')
         .eq('id', entry.invoice_id)
         .maybeSingle()
         .then(({ data }) => {
           if (!data) return
           const inv = data as {
             id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null
-            status: string; discount_type: string; discount_value: number; reference: string | null
+            status: string; discount_type: string; discount_value: number; rounding_diff: number; reference: string | null
             invoice_items: { unit_price: number; quantity: number }[]
           }
           const subtotal = (inv.invoice_items ?? []).reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
           const disc = inv.discount_type === 'percent' ? subtotal * Number(inv.discount_value) / 100 : Number(inv.discount_value)
-          setSelectedInvoice({ id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc, discount_type: inv.discount_type, discount_value: inv.discount_value, reference: inv.reference ?? null, status: inv.status })
+          const rnd = Number(inv.rounding_diff ?? 0)
+          setSelectedInvoice({ id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc - rnd, discount_type: inv.discount_type, discount_value: inv.discount_value, rounding_diff: rnd, reference: inv.reference ?? null, status: inv.status })
           setLinkDebitor(true)
         })
     }
@@ -1619,18 +1621,19 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     setLoadingInvoices(true)
     const { data } = await supabase
       .from('invoices')
-      .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
+      .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, rounding_diff, reference, invoice_items(unit_price, quantity)')
       .in('status', ['entwurf', 'gesendet'])
       .order('status')   // gesendet vor entwurf
       .order('number', { ascending: false })
     const list: InvoiceForPayment[] = (data ?? []).map((inv: {
       id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null
-      status: string; discount_type: string; discount_value: number; reference: string | null
+      status: string; discount_type: string; discount_value: number; rounding_diff: number; reference: string | null
       invoice_items: { unit_price: number; quantity: number }[]
     }) => {
       const subtotal = (inv.invoice_items ?? []).reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
       const disc = inv.discount_type === 'percent' ? subtotal * Number(inv.discount_value) / 100 : Number(inv.discount_value)
-      return { id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc, discount_type: inv.discount_type, discount_value: inv.discount_value, reference: inv.reference ?? null, status: inv.status }
+      const rnd = Number(inv.rounding_diff ?? 0)
+      return { id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc - rnd, discount_type: inv.discount_type, discount_value: inv.discount_value, rounding_diff: rnd, reference: inv.reference ?? null, status: inv.status }
     })
     setOpenInvoices(list)
     setLoadingInvoices(false)
@@ -1662,16 +1665,17 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     // Offene Rechnungen für Matching laden
     const { data: invData } = await supabase
       .from('invoices')
-      .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
+      .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, rounding_diff, reference, invoice_items(unit_price, quantity)')
       .eq('status', 'gesendet')
     const openInvList: InvoiceForPayment[] = (invData ?? []).map((inv: {
       id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null
-      discount_type: string; discount_value: number; reference: string | null
+      discount_type: string; discount_value: number; rounding_diff: number; reference: string | null
       invoice_items: { unit_price: number; quantity: number }[]
     }) => {
       const sub = (inv.invoice_items ?? []).reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
       const disc = inv.discount_type === 'percent' ? sub * Number(inv.discount_value) / 100 : Number(inv.discount_value)
-      return { ...inv, total: sub - disc, reference: inv.reference ?? null } as InvoiceForPayment
+      const rnd = Number(inv.rounding_diff ?? 0)
+      return { ...inv, total: sub - disc - rnd, rounding_diff: rnd, reference: inv.reference ?? null } as InvoiceForPayment
     })
 
     for (const entry of entries) {

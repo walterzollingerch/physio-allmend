@@ -16,13 +16,14 @@ export default async function RechnungenPage() {
   type InvoiceWithItems = {
     id: string; number: string; customer_name: string; invoice_date: string
     due_date: string | null; status: string; discount_type: string; discount_value: number
+    rounding_diff: number
     reference: string | null
     invoice_items: { unit_price: number; quantity: number }[]
   }
 
   const { data: invoices } = await supabase
     .from('invoices')
-    .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
+    .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, rounding_diff, reference, invoice_items(unit_price, quantity)')
     .order('number', { ascending: false }) as { data: InvoiceWithItems[] | null; error: unknown }
 
   const withTotals = (invoices ?? []).map(inv => {
@@ -32,7 +33,8 @@ export default async function RechnungenPage() {
     const discount = inv.discount_type === 'percent'
       ? subtotal * Number(inv.discount_value) / 100
       : Number(inv.discount_value)
-    return { id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, status: inv.status, reference: inv.reference, total: subtotal - discount }
+    const rounding = Number(inv.rounding_diff ?? 0)
+    return { id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, status: inv.status, reference: inv.reference, total: subtotal - discount - rounding }
   })
 
   const totalOffen   = withTotals.filter(i => i.status === 'gesendet').reduce((s, i) => s + i.total, 0)

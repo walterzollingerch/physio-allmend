@@ -217,6 +217,7 @@ export interface Database {
           footer: string | null
           discount_type: 'percent' | 'amount'
           discount_value: number
+          rounding_diff: number
           status: 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
           created_by: string | null
           created_at: string
@@ -237,6 +238,7 @@ export interface Database {
           footer?: string | null
           discount_type?: 'percent' | 'amount'
           discount_value?: number
+          rounding_diff?: number
           status?: 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
           created_by?: string | null
           created_at?: string
@@ -256,6 +258,7 @@ export interface Database {
           footer?: string | null
           discount_type?: 'percent' | 'amount'
           discount_value?: number
+          rounding_diff?: number
           status?: 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
           updated_at?: string
         }

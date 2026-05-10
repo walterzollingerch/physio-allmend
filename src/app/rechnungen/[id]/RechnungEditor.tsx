@@ -35,6 +35,7 @@ interface Invoice {
   footer: string | null
   discount_type: 'percent' | 'amount'
   discount_value: number
+  rounding_diff: number
   status: Status
 }
 
@@ -254,7 +255,8 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
   const discountAmt = inv.discount_type === 'percent'
     ? subtotal * Number(inv.discount_value) / 100
     : Number(inv.discount_value)
-  const total = subtotal - discountAmt
+  const roundingDiff = Number(inv.rounding_diff ?? 0)
+  const total = subtotal - discountAmt - roundingDiff
 
   const ertragskonten   = accounts.filter(a => a.type === 'ertrag')
   const forderungskonten = accounts.filter(a => a.number.startsWith('110'))
@@ -373,6 +375,23 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           balanceDeltas.set(rabattKonto.id, (balanceDeltas.get(rabattKonto.id) ?? 0) - discountAmt)
           // 1100 (Aktiv): HABEN → balance -
           balanceDeltas.set(forderungsKontoId, (balanceDeltas.get(forderungsKontoId) ?? 0) - discountAmt)
+        }
+      }
+
+      // Rundungsdifferenz-Buchung: SOLL 6960 / HABEN 1100 (reduziert nur die Forderung)
+      if (roundingDiff > 0) {
+        const rundungsKonto = accounts.find(a => a.number === '6960') ?? accounts.find(a => a.number === '6940')
+        if (rundungsKonto && forderungsKontoId) {
+          await supabase.from('journal_entries').insert({
+            date: inv.invoice_date,
+            description: `Rundungsdifferenz ${inv.number}`,
+            debit_account_id: rundungsKonto.id,   // SOLL 6960 Rundungsdifferenzen
+            credit_account_id: forderungsKontoId, // HABEN 1100 Forderungen
+            amount: roundingDiff,
+            invoice_id: inv.id,
+          })
+          balanceDeltas.set(rundungsKonto.id,   (balanceDeltas.get(rundungsKonto.id)   ?? 0) - roundingDiff)
+          balanceDeltas.set(forderungsKontoId,  (balanceDeltas.get(forderungsKontoId)  ?? 0) - roundingDiff)
         }
       }
 
@@ -776,6 +795,20 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
             </div>
             <span className="text-[#7A6E60] w-28 text-right">- CHF {fmt(discountAmt)}</span>
           </div>
+          {/* Rundungsdifferenz */}
+          <div className="flex justify-end items-center px-5 pb-3 gap-3 text-sm">
+            <span className="text-[#7A6E60]">Rundungsdifferenz</span>
+            <input
+              type="number" min="0" step="0.01"
+              value={inv.rounding_diff ?? 0}
+              onChange={e => setField('rounding_diff', parseFloat(e.target.value) || 0)}
+              className="border border-[#E1D6C2] rounded-lg px-3 py-1.5 text-sm text-right w-24 bg-white focus:outline-none focus:ring-2 focus:ring-[#6B8E7F]/40"
+            />
+            <span className="text-xs text-[#7A6E60] w-[4.5rem] text-center">CHF</span>
+            <span className={`w-28 text-right ${roundingDiff > 0 ? 'text-[#7A6E60]' : 'text-[#C8C0B4]'}`}>
+              {roundingDiff > 0 ? `- CHF ${fmt(roundingDiff)}` : '—'}
+            </span>
+          </div>
           <div className="flex justify-end px-5 pb-4 gap-6 border-t border-[#E1D6C2] pt-3">
             <span className="font-semibold text-[#2A2622]">Total</span>
             <span className="font-bold text-xl text-[#2A2622] w-28 text-right">CHF {fmt(total)}</span>
@@ -1157,8 +1190,9 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
 
             {/* Preview of journal entries */}
             {forderungsKontoId && items.filter(i => i.account_id).length > 0 && (() => {
-              const fordAcc    = accounts.find(a => a.id === forderungsKontoId)
-              const rabattAcc  = accounts.find(a => a.number === '3801')
+              const fordAcc      = accounts.find(a => a.id === forderungsKontoId)
+              const rabattAcc    = accounts.find(a => a.number === '3801')
+              const rundungsAcc  = accounts.find(a => a.number === '6960') ?? accounts.find(a => a.number === '6940')
               const itemsWithAcc = items.filter(i => i.account_id)
               return (
                 <div>
@@ -1204,6 +1238,20 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                             <td className="py-1.5 pr-3 text-right font-medium text-amber-800">− {fmt(discountAmt)}</td>
                           </tr>
                         )}
+
+                        {/* Rundungsdifferenz: SOLL 6960 / HABEN 1100 */}
+                        {roundingDiff > 0 && (
+                          <tr className="border-t-2 border-blue-200 bg-blue-50">
+                            <td className="px-3 py-1.5 text-blue-800 font-medium italic">Rundungsdifferenz</td>
+                            <td className="py-1.5 text-blue-700">
+                              {rundungsAcc
+                                ? `${rundungsAcc.number} ${rundungsAcc.name}`
+                                : <span className="text-red-500">6960/6940 nicht gefunden!</span>}
+                            </td>
+                            <td className="py-1.5 text-blue-700">{fordAcc?.number} {fordAcc?.name}</td>
+                            <td className="py-1.5 pr-3 text-right font-medium text-blue-800">− {fmt(roundingDiff)}</td>
+                          </tr>
+                        )}
                       </tbody>
 
                       {/* Summenzeile */}
@@ -1213,18 +1261,24 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                             Netto-Forderung ({fordAcc?.number})
                           </td>
                           <td className="py-2 pr-3 text-right font-bold text-[#2A2622]">
-                            {fmt(subtotal - discountAmt)}
+                            {fmt(total)}
                           </td>
                         </tr>
                       </tfoot>
                     </table>
                   </div>
 
-                  {/* Warnung wenn 3801 fehlt */}
+                  {/* Warnungen bei fehlenden Konten */}
                   {discountAmt > 0 && !rabattAcc && (
                     <p className="mt-2 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 flex items-center gap-1.5">
                       <AlertTriangle size={13} />
-                      Kein Konto 3801 gefunden — Rabattbuchung wird übersprungen. Bitte Konto 3801 in der Buchhaltung anlegen.
+                      Kein Konto 3801 gefunden — Rabattbuchung wird übersprungen. Bitte Konto 3801 anlegen.
+                    </p>
+                  )}
+                  {roundingDiff > 0 && !rundungsAcc && (
+                    <p className="mt-2 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 flex items-center gap-1.5">
+                      <AlertTriangle size={13} />
+                      Kein Konto 6960 / 6940 gefunden — Rundungsdifferenz wird übersprungen. Bitte Rundungskonto anlegen.
                     </p>
                   )}
                 </div>
