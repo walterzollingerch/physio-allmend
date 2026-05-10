@@ -1941,12 +1941,39 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         await supabase.from('invoices').update({ status: 'gesendet' }).eq('id', oldInvoiceId)
       }
       if (newInvoiceId) {
-        // Skonto bei Differenz (edit mode: discount wird direkt auf Rechnung gebucht, kein extra Eintrag)
+        // Skonto bei Differenz: eigener Buchungseintrag mit invoice_id (auch im Edit-Modus)
         if (discount && discount.discountAmount > 0 && selectedInvoice) {
-          const existingDisc = selectedInvoice.discount_type === 'amount' ? Number(selectedInvoice.discount_value) : 0
-          await supabase.from('invoices')
-            .update({ discount_type: 'amount', discount_value: existingDisc + discount.discountAmount })
-            .eq('id', newInvoiceId)
+          const discAcc = accounts.find(a => a.id === discount.discountAccountId)
+          if (discAcc) {
+            const discEntry = {
+              date,
+              description: `Skonto ${selectedInvoice.number}`,
+              debit_account_id:  discount.discountAccountId,  // SOLL 3801
+              credit_account_id: creditId,                    // HABEN 1100 Forderungen
+              amount: discount.discountAmount,
+              fiscal_year_id: selectedFiscalYearId,
+              invoice_id: selectedInvoice.id,                 // ← eindeutig der Rechnung zugewiesen
+            }
+            const { data: discRows } = await supabase.from('journal_entries').insert(discEntry).select(JE_SELECT)
+            const discEntry0 = Array.isArray(discRows) ? discRows[0] : discRows
+            if (discEntry0) onJournalEntriesChange(prev => [discEntry0 as JournalEntry, ...prev])
+
+            const discDebitDelta  = balanceDelta(discAcc.type,  true,  discount.discountAmount)
+            const discCreditDelta = balanceDelta(creditAcc.type, false, discount.discountAmount)
+            const d1 = await applyDelta(discount.discountAccountId, discDebitDelta,  accounts)
+            const d2 = await applyDelta(creditId,                   discCreditDelta, accounts)
+            onAccountsChange(prev => prev.map(a => {
+              if (a.id === d1.id) return { ...a, balance: d1.newBalance }
+              if (a.id === d2.id) return { ...a, balance: d2.newBalance }
+              return a
+            }))
+
+            // Rabatt auch auf Rechnung vermerken (für Anzeige & spätere Berechnungen)
+            const existingDisc = selectedInvoice.discount_type === 'amount' ? Number(selectedInvoice.discount_value) : 0
+            await supabase.from('invoices')
+              .update({ discount_type: 'amount', discount_value: existingDisc + discount.discountAmount })
+              .eq('id', newInvoiceId)
+          }
         }
         await supabase.from('invoices').update({ status: 'bezahlt' }).eq('id', newInvoiceId)
       }

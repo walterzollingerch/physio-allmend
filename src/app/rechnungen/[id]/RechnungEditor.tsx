@@ -3,7 +3,7 @@
 import { useState, useTransition, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Trash2, Save, Send, CheckCircle, XCircle, Search, UserRound, X, Archive, AlertTriangle, RotateCcw, Printer } from 'lucide-react'
+import { Plus, Trash2, Save, Send, CheckCircle, XCircle, Search, UserRound, X, Archive, AlertTriangle, RotateCcw, Printer, BookOpen, ChevronDown, RefreshCw } from 'lucide-react'
 import { openInvoicePrint } from '@/lib/invoice-print'
 
 type Status = 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
@@ -198,6 +198,57 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
   const [resetEntries, setResetEntries]           = useState<{ id: string; date: string; description: string; amount: number; debit: string; credit: string }[]>([])
   const [resetLoading, setResetLoading]           = useState(false)
 
+  // Buchungen-Panel
+  const [showBuchungen, setShowBuchungen]       = useState(false)
+  const [buchungen, setBuchungen]               = useState<{ id: string; date: string; description: string; amount: number; debit: string; credit: string }[]>([])
+  const [buchungenLoading, setBuchungenLoading] = useState(false)
+
+  async function loadBuchungen() {
+    if (showBuchungen) { setShowBuchungen(false); return }
+    setBuchungenLoading(true)
+    setShowBuchungen(true)
+    const { data: entries } = await supabase
+      .from('journal_entries')
+      .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name)')
+      .eq('invoice_id', inv.id)
+      .order('date', { ascending: true })
+    setBuchungen((entries ?? []).map((e: {
+      id: string; date: string; description: string; amount: number
+      debit_account: { number: string; name: string } | null
+      credit_account: { number: string; name: string } | null
+    }) => ({
+      id: e.id,
+      date: e.date,
+      description: e.description,
+      amount: Number(e.amount),
+      debit:  e.debit_account  ? `${e.debit_account.number} ${e.debit_account.name}`  : '—',
+      credit: e.credit_account ? `${e.credit_account.number} ${e.credit_account.name}` : '—',
+    })))
+    setBuchungenLoading(false)
+  }
+
+  async function reloadBuchungen() {
+    setBuchungenLoading(true)
+    const { data: entries } = await supabase
+      .from('journal_entries')
+      .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name)')
+      .eq('invoice_id', inv.id)
+      .order('date', { ascending: true })
+    setBuchungen((entries ?? []).map((e: {
+      id: string; date: string; description: string; amount: number
+      debit_account: { number: string; name: string } | null
+      credit_account: { number: string; name: string } | null
+    }) => ({
+      id: e.id,
+      date: e.date,
+      description: e.description,
+      amount: Number(e.amount),
+      debit:  e.debit_account  ? `${e.debit_account.number} ${e.debit_account.name}`  : '—',
+      credit: e.credit_account ? `${e.credit_account.number} ${e.credit_account.name}` : '—',
+    })))
+    setBuchungenLoading(false)
+  }
+
   // Derived
   const subtotal    = items.reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
   const discountAmt = inv.discount_type === 'percent'
@@ -303,6 +354,26 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
         balanceDeltas.set(forderungsKontoId, (balanceDeltas.get(forderungsKontoId) ?? 0) + amount)
         // Ertragskonto (ertrag) im Haben → balance +
         balanceDeltas.set(item.account_id!, (balanceDeltas.get(item.account_id!) ?? 0) + amount)
+      }
+
+      // Rabatt-Buchung: SOLL 3801 / HABEN 1100 (reduziert Forderung und Ertrag)
+      // discountAmt kommt aus dem Render-Scope (inv.discount_type / inv.discount_value)
+      if (discountAmt > 0) {
+        const rabattKonto = accounts.find(a => a.number === '3801')
+        if (rabattKonto && forderungsKontoId) {
+          await supabase.from('journal_entries').insert({
+            date: inv.invoice_date,
+            description: `Rabatt ${inv.number} – ${inv.customer_name ?? ''}`,
+            debit_account_id: rabattKonto.id,     // SOLL 3801 Rabatte
+            credit_account_id: forderungsKontoId, // HABEN 1100 Forderungen
+            amount: discountAmt,
+            invoice_id: inv.id,                   // → wird bei Reset/Archiv automatisch storniert
+          })
+          // 3801 (Aufwand/Gegenertragskt.): SOLL → balance -
+          balanceDeltas.set(rabattKonto.id, (balanceDeltas.get(rabattKonto.id) ?? 0) - discountAmt)
+          // 1100 (Aktiv): HABEN → balance -
+          balanceDeltas.set(forderungsKontoId, (balanceDeltas.get(forderungsKontoId) ?? 0) - discountAmt)
+        }
       }
 
       // Update account balances
@@ -731,6 +802,92 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
         </div>
       </div>
 
+      {/* ── Verknüpfte Buchungen ────────────────────────────── */}
+      {inv.status !== 'entwurf' && (
+        <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
+          {/* Header / Toggle */}
+          <button
+            onClick={loadBuchungen}
+            className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-[#F7F2EC] transition-colors group"
+          >
+            <div className="flex items-center gap-2">
+              <BookOpen size={15} className="text-[#6B8E7F]" />
+              <span className="font-semibold text-[#2A2622] text-sm" style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
+                Verknüpfte Buchungen
+              </span>
+              {!showBuchungen && buchungen.length > 0 && (
+                <span className="text-xs text-[#7A6E60] bg-[#F7F2EC] px-2 py-0.5 rounded-full">
+                  {buchungen.length}
+                </span>
+              )}
+            </div>
+            <ChevronDown
+              size={15}
+              className={`text-[#7A6E60] transition-transform duration-200 ${showBuchungen ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {/* Content */}
+          {showBuchungen && (
+            <div className="border-t border-[#E1D6C2]">
+              {buchungenLoading ? (
+                <p className="text-sm text-[#7A6E60] text-center py-8">Buchungen werden geladen…</p>
+              ) : buchungen.length === 0 ? (
+                <p className="text-sm text-[#7A6E60] text-center py-8">
+                  Keine verknüpften Buchungen vorhanden.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" style={{ minWidth: '620px' }}>
+                    <thead>
+                      <tr className="text-[#7A6E60] uppercase tracking-wide bg-[#F7F2EC] border-b border-[#E1D6C2]">
+                        <th className="text-left px-5 py-2.5 w-[10%]">Datum</th>
+                        <th className="text-left py-2.5 w-[28%]">Beschreibung</th>
+                        <th className="text-left py-2.5 w-[24%]">Soll</th>
+                        <th className="text-left py-2.5 w-[24%]">Haben</th>
+                        <th className="text-right py-2.5 pr-5 w-[14%]">CHF</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {buchungen.map(e => (
+                        <tr key={e.id} className="border-t border-[#F7F2EC] hover:bg-[#FDFAF6]">
+                          <td className="px-5 py-2 text-[#7A6E60] whitespace-nowrap font-mono">{e.date}</td>
+                          <td className="py-2 pr-3 text-[#2A2622]">{e.description}</td>
+                          <td className="py-2 pr-3 text-[#4A4138]">{e.debit}</td>
+                          <td className="py-2 pr-3 text-[#4A4138]">{e.credit}</td>
+                          <td className="py-2 pr-5 text-right font-medium text-[#2A2622]">{fmt(e.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-[#E1D6C2] bg-[#F7F2EC]">
+                        <td colSpan={4} className="px-5 py-2.5 text-[#7A6E60]">
+                          {buchungen.length} Buchung{buchungen.length !== 1 ? 'en' : ''} total
+                        </td>
+                        <td className="py-2.5 pr-5 text-right font-bold text-[#2A2622]">
+                          {fmt(buchungen.reduce((s, e) => s + e.amount, 0))}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+              {/* Refresh */}
+              <div className="flex justify-end px-5 py-2.5 border-t border-[#F7F2EC]">
+                <button
+                  onClick={reloadBuchungen}
+                  disabled={buchungenLoading}
+                  className="flex items-center gap-1.5 text-xs text-[#7A6E60] hover:text-[#2A2622] transition-colors disabled:opacity-40"
+                >
+                  <RefreshCw size={12} className={buchungenLoading ? 'animate-spin' : ''} />
+                  Aktualisieren
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Customer Picker Modal ───────────────────────────── */}
       {showPicker && (
         <Modal title="Kunde auswählen" onClose={() => { setShowPicker(false); setCustomerSearch('') }}>
@@ -999,39 +1156,80 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
             </div>
 
             {/* Preview of journal entries */}
-            {forderungsKontoId && items.filter(i => i.account_id).length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-[#7A6E60] mb-2 uppercase tracking-wide">Buchungsvorschau</p>
-                <div className="rounded-lg border border-[#E1D6C2] overflow-hidden text-xs">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="bg-[#F7F2EC] text-[#7A6E60]">
-                        <th className="text-left px-3 py-2">Position</th>
-                        <th className="text-left py-2">Soll</th>
-                        <th className="text-left py-2">Haben</th>
-                        <th className="text-right py-2 pr-3">CHF</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.filter(i => i.account_id).map(item => {
-                        const ertragAcc = accounts.find(a => a.id === item.account_id)
-                        const fordAcc   = accounts.find(a => a.id === forderungsKontoId)
-                        return (
-                          <tr key={item.id} className="border-t border-[#F7F2EC]">
-                            <td className="px-3 py-1.5 text-[#2A2622] font-medium">{item.service_name || '—'}</td>
-                            <td className="py-1.5 text-[#4A4138]">{fordAcc?.number} {fordAcc?.name}</td>
-                            <td className="py-1.5 text-[#4A4138]">{ertragAcc?.number} {ertragAcc?.name}</td>
-                            <td className="py-1.5 pr-3 text-right font-medium text-[#2A2622]">
-                              {fmt(Number(item.unit_price) * Number(item.quantity))}
+            {forderungsKontoId && items.filter(i => i.account_id).length > 0 && (() => {
+              const fordAcc    = accounts.find(a => a.id === forderungsKontoId)
+              const rabattAcc  = accounts.find(a => a.number === '3801')
+              const itemsWithAcc = items.filter(i => i.account_id)
+              return (
+                <div>
+                  <p className="text-xs font-medium text-[#7A6E60] mb-2 uppercase tracking-wide">Buchungsvorschau</p>
+                  <div className="rounded-lg border border-[#E1D6C2] overflow-hidden text-xs">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-[#F7F2EC] text-[#7A6E60]">
+                          <th className="text-left px-3 py-2">Beschreibung</th>
+                          <th className="text-left py-2">Soll</th>
+                          <th className="text-left py-2">Haben</th>
+                          <th className="text-right py-2 pr-3">CHF</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* Positionen: SOLL 1100 / HABEN Ertrag */}
+                        {itemsWithAcc.map(item => {
+                          const ertragAcc = accounts.find(a => a.id === item.account_id)
+                          return (
+                            <tr key={item.id} className="border-t border-[#F7F2EC]">
+                              <td className="px-3 py-1.5 text-[#2A2622] font-medium">{item.service_name || '—'}</td>
+                              <td className="py-1.5 text-[#4A4138]">{fordAcc?.number} {fordAcc?.name}</td>
+                              <td className="py-1.5 text-[#4A4138]">{ertragAcc?.number} {ertragAcc?.name}</td>
+                              <td className="py-1.5 pr-3 text-right font-medium text-[#2A2622]">
+                                {fmt(Number(item.unit_price) * Number(item.quantity))}
+                              </td>
+                            </tr>
+                          )
+                        })}
+
+                        {/* Rabatt: SOLL 3801 / HABEN 1100 */}
+                        {discountAmt > 0 && (
+                          <tr className="border-t-2 border-amber-200 bg-amber-50">
+                            <td className="px-3 py-1.5 text-amber-800 font-medium italic">
+                              Rabatt ({inv.discount_type === 'percent' ? `${inv.discount_value}%` : 'CHF'})
                             </td>
+                            <td className="py-1.5 text-amber-700">
+                              {rabattAcc
+                                ? `${rabattAcc.number} ${rabattAcc.name}`
+                                : <span className="text-red-500">3801 nicht gefunden!</span>}
+                            </td>
+                            <td className="py-1.5 text-amber-700">{fordAcc?.number} {fordAcc?.name}</td>
+                            <td className="py-1.5 pr-3 text-right font-medium text-amber-800">− {fmt(discountAmt)}</td>
                           </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                        )}
+                      </tbody>
+
+                      {/* Summenzeile */}
+                      <tfoot>
+                        <tr className="border-t border-[#E1D6C2] bg-[#F7F2EC]">
+                          <td colSpan={3} className="px-3 py-2 text-[#7A6E60]">
+                            Netto-Forderung ({fordAcc?.number})
+                          </td>
+                          <td className="py-2 pr-3 text-right font-bold text-[#2A2622]">
+                            {fmt(subtotal - discountAmt)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* Warnung wenn 3801 fehlt */}
+                  {discountAmt > 0 && !rabattAcc && (
+                    <p className="mt-2 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 flex items-center gap-1.5">
+                      <AlertTriangle size={13} />
+                      Kein Konto 3801 gefunden — Rabattbuchung wird übersprungen. Bitte Konto 3801 in der Buchhaltung anlegen.
+                    </p>
+                  )}
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
 
