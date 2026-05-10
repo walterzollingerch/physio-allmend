@@ -49,6 +49,7 @@ interface JournalEntry {
   credit_account_id: string
   amount: number
   fiscal_year_id: string | null
+  invoice_id?: string | null
   created_at: string
   debit_account?: { number: string; name: string; type: AccountType }
   credit_account?: { number: string; name: string; type: AccountType }
@@ -1579,7 +1580,30 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     setDebitId(entry.debit_account_id)
     setCreditId(entry.credit_account_id)
     setAmount(String(entry.amount))
-    setError(null); setShowForm(true)
+    setError(null)
+    // Reset debitor state
+    setLinkDebitor(false); setSelectedInvoice(null)
+    // If this entry already has a linked invoice, load it
+    if (entry.invoice_id) {
+      supabase
+        .from('invoices')
+        .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, reference, invoice_items(unit_price, quantity)')
+        .eq('id', entry.invoice_id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!data) return
+          const inv = data as {
+            id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null
+            status: string; discount_type: string; discount_value: number; reference: string | null
+            invoice_items: { unit_price: number; quantity: number }[]
+          }
+          const subtotal = (inv.invoice_items ?? []).reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
+          const disc = inv.discount_type === 'percent' ? subtotal * Number(inv.discount_value) / 100 : Number(inv.discount_value)
+          setSelectedInvoice({ id: inv.id, number: inv.number, customer_name: inv.customer_name, invoice_date: inv.invoice_date, due_date: inv.due_date, total: subtotal - disc, discount_type: inv.discount_type, discount_value: inv.discount_value, reference: inv.reference ?? null, status: inv.status })
+          setLinkDebitor(true)
+        })
+    }
+    setShowForm(true)
   }
 
   function closeForm() {
@@ -1868,9 +1892,20 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         newBalances[r.id] = r.newBalance
       }
 
+      // Debitor-Verknüpfung: invoice_id bestimmen
+      const newInvoiceId = linkDebitor && selectedInvoice ? selectedInvoice.id : null
+      const oldInvoiceId = editingEntry.invoice_id ?? null
+
       const { data: updatedRows, error: err } = await supabase
         .from('journal_entries')
-        .update({ date, description, debit_account_id: debitId, credit_account_id: creditId, amount: amt, fiscal_year_id: selectedFiscalYearId })
+        .update({
+          date, description,
+          debit_account_id: debitId,
+          credit_account_id: creditId,
+          amount: amt,
+          fiscal_year_id: selectedFiscalYearId,
+          invoice_id: newInvoiceId,
+        })
         .eq('id', editingEntry.id)
         .select(JE_SELECT)
       if (err) { setError(err.message); return }
@@ -1879,6 +1914,22 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
 
       onJournalEntriesChange(prev => prev.map(e => e.id === editingEntry.id ? updated as JournalEntry : e))
       onAccountsChange(prev => prev.map(a => a.id in newBalances ? { ...a, balance: newBalances[a.id] } : a))
+
+      // Rechnungsstatus anpassen
+      if (oldInvoiceId && oldInvoiceId !== newInvoiceId) {
+        // Alte Rechnung wieder auf gesendet stellen
+        await supabase.from('invoices').update({ status: 'gesendet' }).eq('id', oldInvoiceId)
+      }
+      if (newInvoiceId) {
+        // Skonto bei Differenz (edit mode: discount wird direkt auf Rechnung gebucht, kein extra Eintrag)
+        if (discount && discount.discountAmount > 0 && selectedInvoice) {
+          const existingDisc = selectedInvoice.discount_type === 'amount' ? Number(selectedInvoice.discount_value) : 0
+          await supabase.from('invoices')
+            .update({ discount_type: 'amount', discount_value: existingDisc + discount.discountAmount })
+            .eq('id', newInvoiceId)
+        }
+        await supabase.from('invoices').update({ status: 'bezahlt' }).eq('id', newInvoiceId)
+      }
 
     } else {
       // ── New entry ────────────────────────────────────────────
@@ -2056,43 +2107,46 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
               </Field>
             </div>
             {/* Debitor-Verknüpfung */}
-            {!isEditMode && (
-              <div className="sm:col-span-2">
-                <label className="flex items-center gap-2 text-sm text-[#7A6E60] cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={linkDebitor}
-                    onChange={e => { setLinkDebitor(e.target.checked); if (!e.target.checked) setSelectedInvoice(null) }}
-                    className="rounded border-[#E1D6C2] accent-[#6B8E7F]"
-                  />
-                  Mit Debitor verknüpfen (offene Rechnung zuweisen)
-                </label>
-                {linkDebitor && (
-                  <div className="mt-2">
-                    {selectedInvoice ? (
-                      <div className="flex items-center gap-3 bg-[#F4EDE2] rounded-xl px-4 py-2.5 text-sm">
-                        <div className="flex-1">
-                          <span className="font-semibold text-[#2A2622]">{selectedInvoice.number}</span>
-                          <span className="text-[#4A4138] ml-2">{selectedInvoice.customer_name}</span>
-                          <span className="text-[#7A6E60] ml-3">CHF {fmt(selectedInvoice.total)}</span>
-                          <span className="text-xs text-[#7A6E60] ml-3">{fmtDate(selectedInvoice.invoice_date)}</span>
-                        </div>
-                        <button type="button" onClick={openDebitorModal} className="text-xs text-[#6B8E7F] hover:underline shrink-0">Ändern</button>
-                        <button type="button" onClick={() => setSelectedInvoice(null)} className="text-[#7A6E60] hover:text-red-500"><X size={14} /></button>
+            <div className="sm:col-span-2">
+              <label className="flex items-center gap-2 text-sm text-[#7A6E60] cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={linkDebitor}
+                  onChange={e => { setLinkDebitor(e.target.checked); if (!e.target.checked) setSelectedInvoice(null) }}
+                  className="rounded border-[#E1D6C2] accent-[#6B8E7F]"
+                />
+                Mit Debitor verknüpfen (offene Rechnung zuweisen)
+              </label>
+              {linkDebitor && (
+                <div className="mt-2">
+                  {selectedInvoice ? (
+                    <div className="flex items-center gap-3 bg-[#F4EDE2] rounded-xl px-4 py-2.5 text-sm">
+                      <div className="flex-1 min-w-0">
+                        <span className="font-semibold text-[#2A2622]">{selectedInvoice.number}</span>
+                        <span className="text-[#4A4138] ml-2">{selectedInvoice.customer_name}</span>
+                        <span className="text-[#7A6E60] ml-3">CHF {fmt(selectedInvoice.total)}</span>
+                        <span className="text-xs text-[#7A6E60] ml-3">{fmtDate(selectedInvoice.invoice_date)}</span>
+                        {selectedInvoice.status && (
+                          <span className={`text-xs ml-2 px-1.5 py-0.5 rounded-full ${selectedInvoice.status === 'bezahlt' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {selectedInvoice.status}
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={openDebitorModal}
-                        className="flex items-center gap-2 text-sm text-[#6B8E7F] border border-dashed border-[#6B8E7F] rounded-xl px-4 py-2 hover:bg-[#F4EDE2] transition-colors"
-                      >
-                        <Plus size={14} /> Offene Rechnung auswählen
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                      <button type="button" onClick={openDebitorModal} className="text-xs text-[#6B8E7F] hover:underline shrink-0">Ändern</button>
+                      <button type="button" onClick={() => setSelectedInvoice(null)} className="text-[#7A6E60] hover:text-red-500"><X size={14} /></button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={openDebitorModal}
+                      className="flex items-center gap-2 text-sm text-[#6B8E7F] border border-dashed border-[#6B8E7F] rounded-xl px-4 py-2 hover:bg-[#F4EDE2] transition-colors"
+                    >
+                      <Plus size={14} /> Offene Rechnung auswählen
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           {error && <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
           <div className="flex gap-3 mt-4">
