@@ -1898,11 +1898,15 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
       }
 
       // Debitor-Verknüpfung: invoice_id bestimmen
-      const newInvoiceId = linkDebitor && selectedInvoice ? selectedInvoice.id : null
+      // Im Edit-Modus: invoice_id nur ändern wenn linkDebitor aktiv ist.
+      // Ist linkDebitor false (auch wenn async-Load noch läuft), bestehende invoice_id behalten.
+      const newInvoiceId = linkDebitor && selectedInvoice
+        ? selectedInvoice.id
+        : (editingEntry.invoice_id ?? null)
       const oldInvoiceId = editingEntry.invoice_id ?? null
 
-      // Update – getrennt von Select (RLS verhindert sonst manchmal den Select nach Update)
-      const { error: err } = await supabase
+      // Update mit .select() → gibt Feedback ob überhaupt eine Row betroffen wurde
+      const { data: updatedRows, error: err } = await supabase
         .from('journal_entries')
         .update({
           date, description,
@@ -1913,16 +1917,22 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
           invoice_id: newInvoiceId,
         })
         .eq('id', editingEntry.id)
+        .select('id')
       if (err) { setError(err.message); return }
+      if (!updatedRows || updatedRows.length === 0) {
+        setError('Buchung konnte nicht gespeichert werden (keine Zeile aktualisiert). Bitte Seite neu laden.')
+        return
+      }
 
       // Zeile erneut laden – nur für Relations (debit_account, credit_account, invoice).
       // Skalare Felder (date, description, amount …) immer aus dem Form-State übernehmen,
       // damit Race-Conditions / Cache-Stale beim Re-fetch keinen alten Stand zeigen.
-      const { data: refetched } = await supabase
+      const { data: refetched, error: refetchErr } = await supabase
         .from('journal_entries')
         .select(JE_SELECT)
         .eq('id', editingEntry.id)
         .maybeSingle()
+      if (refetchErr) console.warn('journal_entries refetch:', refetchErr.message)
 
       const r = refetched as JournalEntry | null
       const debitAccObj  = accounts.find(a => a.id === debitId)
