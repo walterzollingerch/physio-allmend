@@ -58,6 +58,13 @@ interface Account {
   balance: number
 }
 
+interface FiscalYear {
+  id: string
+  name: string
+  start_date: string
+  end_date: string
+}
+
 const STATUS_CONFIG: Record<Status, { label: string; cls: string }> = {
   entwurf:   { label: 'Entwurf',   cls: 'bg-[#F4EDE2] text-[#7A6E60]' },
   gesendet:  { label: 'Gesendet',  cls: 'bg-blue-100 text-blue-700' },
@@ -83,16 +90,24 @@ function newItem(invoiceId: string, position: number): Omit<InvoiceItem, 'id'> {
   return { invoice_id: invoiceId, position, service_name: '', description: null, unit_price: 0, quantity: 1, unit: 'Sitzung', account_id: null }
 }
 
-export default function RechnungEditor({ invoice: initial, initialItems, isAdmin, customers, accounts }: {
+export default function RechnungEditor({ invoice: initial, initialItems, isAdmin, customers, accounts, fiscalYears }: {
   invoice: Invoice
   initialItems: InvoiceItem[]
   isAdmin: boolean
   customers: Customer[]
   accounts: Account[]
+  fiscalYears: FiscalYear[]
 }) {
   const router = useRouter()
   const supabase = createClient()
   const [isPending, start] = useTransition()
+
+  /** Gibt die fiscal_year_id für ein gegebenes Datum zurück (null = kein passendes GJ gefunden) */
+  function fiscalYearIdForDate(date: string): string | null {
+    const d = new Date(date)
+    const fy = fiscalYears.find(y => new Date(y.start_date) <= d && d <= new Date(y.end_date))
+    return fy?.id ?? null
+  }
 
   const [inv, setInv]     = useState<Invoice>(initial)
   const [items, setItems] = useState<InvoiceItem[]>(initialItems)
@@ -175,6 +190,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
         credit_account_id: paymentFordId,
         amount: total,
         invoice_id: inv.id,
+        fiscal_year_id: fiscalYearIdForDate(paymentDate),
       })
 
       // Salden anpassen
@@ -361,6 +377,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           credit_account_id: item.account_id as string,
           amount,
           invoice_id: inv.id,
+          fiscal_year_id: fiscalYearIdForDate(inv.invoice_date),
         })
 
         // Forderungskonto (aktiv) im Soll → balance +
@@ -381,6 +398,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
             credit_account_id: forderungsKontoId, // HABEN 1100 Forderungen
             amount: discountAmt,
             invoice_id: inv.id,                   // → wird bei Reset/Archiv automatisch storniert
+            fiscal_year_id: fiscalYearIdForDate(inv.invoice_date),
           })
           // 3801 (Aufwand/Gegenertragskt.): SOLL → balance -
           balanceDeltas.set(rabattKonto.id, (balanceDeltas.get(rabattKonto.id) ?? 0) - discountAmt)
