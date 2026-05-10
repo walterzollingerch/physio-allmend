@@ -6,7 +6,7 @@ import {
   Plus, Pencil, Trash2, X, Check,
   TrendingUp, TrendingDown, Scale, BookOpen,
   Layers, CalendarRange, Lock, Unlock, ReceiptText, ClipboardCheck, AlertTriangle,
-  FileText, Printer, Search,
+  FileText, Printer, Search, Link as LinkIcon,
 } from 'lucide-react'
 
 type AccountType = 'aktiv' | 'passiv' | 'ertrag' | 'aufwand'
@@ -54,6 +54,7 @@ interface JournalEntry {
   debit_account?: { number: string; name: string; type: AccountType }
   credit_account?: { number: string; name: string; type: AccountType }
   fiscal_year?: { id: string; name: string } | null
+  invoice?: { number: string; customer_name: string } | null
 }
 
 export interface InvoiceForPayment {
@@ -1768,7 +1769,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
 
     setPendingError(null)
     start(async () => {
-      const JE_SELECT = '*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)'
+      const JE_SELECT = '*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type), invoice:invoices!invoice_id(number,customer_name)'
       const entry = {
         date: editPending.date,
         description: pendingDesc || editPending.description,
@@ -2304,7 +2305,20 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
                   {sortedEntries.map(entry => (
                     <tr key={entry.id} className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] group">
                       <td className="px-5 py-2.5 text-[#4A4138] whitespace-nowrap text-sm">{fmtDate(entry.date)}</td>
-                      <td className="py-2.5 pr-3 text-[#2A2622] font-medium text-sm truncate overflow-hidden">{entry.description}</td>
+                      <td className="py-2.5 pr-3 text-[#2A2622] font-medium text-sm overflow-hidden">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="truncate">{entry.description}</span>
+                          {entry.invoice_id && (
+                            <span
+                              className="shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium whitespace-nowrap"
+                              title={entry.invoice ? `Rechnung ${entry.invoice.number} – ${entry.invoice.customer_name}` : 'Mit Rechnung verknüpft'}
+                            >
+                              <LinkIcon size={9} />
+                              {entry.invoice ? entry.invoice.number : 'Rechnung'}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="py-2.5 pr-3 hidden sm:table-cell truncate overflow-hidden">
                         <span className="font-mono text-xs text-[#7A6E60]">{entry.debit_account?.number}</span>
                         <span className="text-xs text-[#4A4138] ml-1">{entry.debit_account?.name}</span>
