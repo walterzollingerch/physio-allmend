@@ -645,7 +645,7 @@ function BilanzTab({ aktiv, passiv, totalAktiv, totalPassiv, ergebnis, isHistori
   selectedFiscalYear: FiscalYear
   groups: AccountGroup[]
 }) {
-  const [hideZero, setHideZero] = useState(false)
+  const [hideZero, setHideZero] = useState(true)
   const totalPassivMitErgebnis = totalPassiv + ergebnis
   const ausgeglichen = Math.abs(totalAktiv - totalPassivMitErgebnis) < 0.01
 
@@ -810,7 +810,7 @@ function ErfolgsTab({ ertrag, aufwand, totalErtrag, totalAufwand, ergebnis, sele
   selectedFiscalYear: FiscalYear
   groups: AccountGroup[]
 }) {
-  const [hideZero, setHideZero] = useState(false)
+  const [hideZero, setHideZero] = useState(true)
 
   // Jahresgewinn erscheint auf Aufwand-Seite (balanciert), Jahresverlust auf Ertrag-Seite
   const gewinn  = ergebnis > 0 ? ergebnis : undefined
