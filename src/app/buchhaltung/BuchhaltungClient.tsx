@@ -1875,7 +1875,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     if (!validated) return
     const { amt, debitAcc, creditAcc } = validated
 
-    const JE_SELECT = '*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type)'
+    const JE_SELECT = '*, fiscal_year:fiscal_years!fiscal_year_id(id,name), debit_account:accounts!debit_account_id(number,name,type), credit_account:accounts!credit_account_id(number,name,type), invoice:invoices!invoice_id(number,customer_name)'
 
     if (isEditMode && editingEntry) {
       // ── Edit: reverse old entry, apply new ──────────────────
@@ -1915,25 +1915,32 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         .eq('id', editingEntry.id)
       if (err) { setError(err.message); return }
 
-      // Zeile erneut laden; falls RLS den Select blockiert → lokalen State verwenden
+      // Zeile erneut laden – nur für Relations (debit_account, credit_account, invoice).
+      // Skalare Felder (date, description, amount …) immer aus dem Form-State übernehmen,
+      // damit Race-Conditions / Cache-Stale beim Re-fetch keinen alten Stand zeigen.
       const { data: refetched } = await supabase
         .from('journal_entries')
         .select(JE_SELECT)
         .eq('id', editingEntry.id)
         .maybeSingle()
 
+      const r = refetched as JournalEntry | null
       const debitAccObj  = accounts.find(a => a.id === debitId)
       const creditAccObj = accounts.find(a => a.id === creditId)
-      const updated: JournalEntry = (refetched as JournalEntry | null) ?? {
+      const updated: JournalEntry = {
         ...editingEntry,
+        // Skalare Felder: immer aus aktuellem Form-State (source of truth)
         date, description,
         debit_account_id:  debitId,
         credit_account_id: creditId,
         amount: amt,
         fiscal_year_id: selectedFiscalYearId,
         invoice_id: newInvoiceId,
-        debit_account:  debitAccObj  ? { number: debitAccObj.number,  name: debitAccObj.name,  type: debitAccObj.type  as never } : editingEntry.debit_account,
-        credit_account: creditAccObj ? { number: creditAccObj.number, name: creditAccObj.name, type: creditAccObj.type as never } : editingEntry.credit_account,
+        // Relations: aus Re-fetch wenn verfügbar, sonst lokal aufbauen
+        debit_account:  r?.debit_account  ?? (debitAccObj  ? { number: debitAccObj.number,  name: debitAccObj.name,  type: debitAccObj.type  as never } : editingEntry.debit_account),
+        credit_account: r?.credit_account ?? (creditAccObj ? { number: creditAccObj.number, name: creditAccObj.name, type: creditAccObj.type as never } : editingEntry.credit_account),
+        fiscal_year:    r?.fiscal_year    ?? editingEntry.fiscal_year,
+        invoice:        r?.invoice        ?? (newInvoiceId === editingEntry.invoice_id ? editingEntry.invoice : null),
       }
 
       onJournalEntriesChange(prev => prev.map(e => e.id === editingEntry.id ? updated : e))
