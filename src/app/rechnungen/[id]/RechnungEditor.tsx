@@ -378,20 +378,33 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
         }
       }
 
-      // Rundungsdifferenz-Buchung: SOLL 6960 / HABEN 1100 (reduziert nur die Forderung)
-      if (roundingDiff > 0) {
+      // Rundungsdifferenz-Buchung (beide Richtungen):
+      // roundingDiff > 0 → Abrunden (Bank zahlt weniger): SOLL 6960 / HABEN 1100
+      // roundingDiff < 0 → Aufrunden (Bank zahlt mehr):   SOLL 1100 / HABEN 6960
+      if (roundingDiff !== 0) {
         const rundungsKonto = accounts.find(a => a.number === '6960') ?? accounts.find(a => a.number === '6940')
         if (rundungsKonto && forderungsKontoId) {
+          const absAmt   = Math.abs(roundingDiff)
+          const roundsUp = roundingDiff < 0  // negative = Aufrunden
           await supabase.from('journal_entries').insert({
             date: inv.invoice_date,
             description: `Rundungsdifferenz ${inv.number}`,
-            debit_account_id: rundungsKonto.id,   // SOLL 6960 Rundungsdifferenzen
-            credit_account_id: forderungsKontoId, // HABEN 1100 Forderungen
-            amount: roundingDiff,
+            debit_account_id:  roundsUp ? forderungsKontoId : rundungsKonto.id,
+            credit_account_id: roundsUp ? rundungsKonto.id   : forderungsKontoId,
+            amount: absAmt,
             invoice_id: inv.id,
           })
-          balanceDeltas.set(rundungsKonto.id,   (balanceDeltas.get(rundungsKonto.id)   ?? 0) - roundingDiff)
-          balanceDeltas.set(forderungsKontoId,  (balanceDeltas.get(forderungsKontoId)  ?? 0) - roundingDiff)
+          if (roundsUp) {
+            // SOLL 1100 (aktiv) → Forderung steigt
+            balanceDeltas.set(forderungsKontoId, (balanceDeltas.get(forderungsKontoId) ?? 0) + absAmt)
+            // HABEN 6960 → Ertrag aus Rundung
+            balanceDeltas.set(rundungsKonto.id,  (balanceDeltas.get(rundungsKonto.id)  ?? 0) - absAmt)
+          } else {
+            // SOLL 6960 → Aufwand Rundung
+            balanceDeltas.set(rundungsKonto.id,  (balanceDeltas.get(rundungsKonto.id)  ?? 0) - absAmt)
+            // HABEN 1100 (aktiv) → Forderung sinkt
+            balanceDeltas.set(forderungsKontoId, (balanceDeltas.get(forderungsKontoId) ?? 0) - absAmt)
+          }
         }
       }
 
@@ -797,16 +810,23 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           </div>
           {/* Rundungsdifferenz */}
           <div className="flex justify-end items-center px-5 pb-3 gap-3 text-sm">
-            <span className="text-[#7A6E60]">Rundungsdifferenz</span>
+            <div className="text-right">
+              <span className="text-[#7A6E60]">Rundungsdifferenz</span>
+              <p className="text-[10px] text-[#B0A898] leading-tight">+ Aufrunden / − Abrunden</p>
+            </div>
             <input
-              type="number" min="0" step="0.01"
+              type="number" step="0.01"
               value={inv.rounding_diff ?? 0}
               onChange={e => setField('rounding_diff', parseFloat(e.target.value) || 0)}
               className="border border-[#E1D6C2] rounded-lg px-3 py-1.5 text-sm text-right w-24 bg-white focus:outline-none focus:ring-2 focus:ring-[#6B8E7F]/40"
             />
             <span className="text-xs text-[#7A6E60] w-[4.5rem] text-center">CHF</span>
-            <span className={`w-28 text-right ${roundingDiff > 0 ? 'text-[#7A6E60]' : 'text-[#C8C0B4]'}`}>
-              {roundingDiff > 0 ? `- CHF ${fmt(roundingDiff)}` : '—'}
+            <span className={`w-28 text-right ${roundingDiff !== 0 ? 'text-[#7A6E60]' : 'text-[#C8C0B4]'}`}>
+              {roundingDiff > 0
+                ? `- CHF ${fmt(roundingDiff)}`
+                : roundingDiff < 0
+                  ? `+ CHF ${fmt(Math.abs(roundingDiff))}`
+                  : '—'}
             </span>
           </div>
           <div className="flex justify-end px-5 pb-4 gap-6 border-t border-[#E1D6C2] pt-3">
@@ -1239,19 +1259,33 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                           </tr>
                         )}
 
-                        {/* Rundungsdifferenz: SOLL 6960 / HABEN 1100 */}
-                        {roundingDiff > 0 && (
-                          <tr className="border-t-2 border-blue-200 bg-blue-50">
-                            <td className="px-3 py-1.5 text-blue-800 font-medium italic">Rundungsdifferenz</td>
-                            <td className="py-1.5 text-blue-700">
-                              {rundungsAcc
-                                ? `${rundungsAcc.number} ${rundungsAcc.name}`
-                                : <span className="text-red-500">6960/6940 nicht gefunden!</span>}
-                            </td>
-                            <td className="py-1.5 text-blue-700">{fordAcc?.number} {fordAcc?.name}</td>
-                            <td className="py-1.5 pr-3 text-right font-medium text-blue-800">− {fmt(roundingDiff)}</td>
-                          </tr>
-                        )}
+                        {/* Rundungsdifferenz: bidirektional */}
+                        {roundingDiff !== 0 && (() => {
+                          const absAmt   = Math.abs(roundingDiff)
+                          const roundsUp = roundingDiff < 0
+                          const sollAcc  = roundsUp ? fordAcc : rundungsAcc
+                          const habenAcc = roundsUp ? rundungsAcc : fordAcc
+                          return (
+                            <tr className="border-t-2 border-blue-200 bg-blue-50">
+                              <td className="px-3 py-1.5 text-blue-800 font-medium italic">
+                                Rundungsdifferenz ({roundsUp ? 'Aufrunden ↑' : 'Abrunden ↓'})
+                              </td>
+                              <td className="py-1.5 text-blue-700">
+                                {sollAcc
+                                  ? `${sollAcc.number} ${sollAcc.name}`
+                                  : <span className="text-red-500">Konto fehlt!</span>}
+                              </td>
+                              <td className="py-1.5 text-blue-700">
+                                {habenAcc
+                                  ? `${habenAcc.number} ${habenAcc.name}`
+                                  : <span className="text-red-500">Konto fehlt!</span>}
+                              </td>
+                              <td className="py-1.5 pr-3 text-right font-medium text-blue-800">
+                                {roundsUp ? '+' : '−'} {fmt(absAmt)}
+                              </td>
+                            </tr>
+                          )
+                        })()}
                       </tbody>
 
                       {/* Summenzeile */}
@@ -1275,7 +1309,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                       Kein Konto 3801 gefunden — Rabattbuchung wird übersprungen. Bitte Konto 3801 anlegen.
                     </p>
                   )}
-                  {roundingDiff > 0 && !rundungsAcc && (
+                  {roundingDiff !== 0 && !rundungsAcc && (
                     <p className="mt-2 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 flex items-center gap-1.5">
                       <AlertTriangle size={13} />
                       Kein Konto 6960 / 6940 gefunden — Rundungsdifferenz wird übersprungen. Bitte Rundungskonto anlegen.
