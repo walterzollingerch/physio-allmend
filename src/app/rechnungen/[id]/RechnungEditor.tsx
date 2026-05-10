@@ -105,6 +105,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
   // Send modal
   const [showSendModal, setShowSendModal]         = useState(false)
   const [forderungsKontoId, setForderungsKontoId] = useState('')
+  const [isNacherfassung, setIsNacherfassung]     = useState(false) // "Forderung nachbuchen" für bereits bezahlte Rechnungen
 
   // Print
   const [printing, setPrinting] = useState(false)
@@ -270,16 +271,17 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
     if (!forderungsKontoId) return
     setError(null)
     start(async () => {
-      // Save invoice as 'gesendet'
-      const { id: _id, ...invData } = inv
-      invData.status = 'gesendet'
-      const { error: invErr } = await supabase.from('invoices').update(invData).eq('id', inv.id)
-      if (invErr) { setError(invErr.message); return }
-      for (const item of items) { await supabase.from('invoice_items').upsert(item) }
+      if (!isNacherfassung) {
+        // Normal flow: save invoice as 'gesendet'
+        const { id: _id, ...invData } = inv
+        invData.status = 'gesendet'
+        const { error: invErr } = await supabase.from('invoices').update(invData).eq('id', inv.id)
+        if (invErr) { setError(invErr.message); return }
+        for (const item of items) { await supabase.from('invoice_items').upsert(item) }
+      }
 
       // Create journal entries per position with account_id
       const itemsWithAccount = items.filter(i => i.account_id)
-      const forderungsAcc = accounts.find(a => a.id === forderungsKontoId)
 
       // Accumulate balance deltas
       const balanceDeltas = new Map<string, number>()
@@ -311,8 +313,11 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
         }
       }
 
-      setInv(prev => ({ ...prev, status: 'gesendet' }))
+      if (!isNacherfassung) {
+        setInv(prev => ({ ...prev, status: 'gesendet' }))
+      }
       setShowSendModal(false)
+      setIsNacherfassung(false)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     })
@@ -481,13 +486,23 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
             </button>
           )}
           {inv.status === 'bezahlt' && (
-            <button
-              onClick={openResetModal}
-              disabled={isPending}
-              className="flex items-center gap-2 border border-amber-300 text-amber-700 hover:bg-amber-50 text-sm px-3 py-2 rounded-lg transition-colors"
-            >
-              <RotateCcw size={14} /> Auf offen zurücksetzen
-            </button>
+            <>
+              <button
+                onClick={() => { setIsNacherfassung(true); setShowSendModal(true) }}
+                disabled={isPending}
+                title="Nur Forderungs-/Ertragsbuchung nacherfassen (wenn Bankbuchung bereits vom Import stammt)"
+                className="flex items-center gap-2 border border-blue-200 text-blue-700 hover:bg-blue-50 text-sm px-3 py-2 rounded-lg transition-colors"
+              >
+                <Plus size={14} /> Forderung nachbuchen
+              </button>
+              <button
+                onClick={openResetModal}
+                disabled={isPending}
+                className="flex items-center gap-2 border border-amber-300 text-amber-700 hover:bg-amber-50 text-sm px-3 py-2 rounded-lg transition-colors"
+              >
+                <RotateCcw size={14} /> Auf offen zurücksetzen
+              </button>
+            </>
           )}
           {(inv.status === 'gesendet' || inv.status === 'bezahlt') && (
             <button
@@ -940,8 +955,19 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
 
       {/* ── Send Modal ──────────────────────────────────────── */}
       {showSendModal && (
-        <Modal title="Rechnung versenden & buchen" onClose={() => setShowSendModal(false)}>
+        <Modal
+          title={isNacherfassung ? 'Forderungsbuchung nacherfassen' : 'Rechnung versenden & buchen'}
+          onClose={() => { setShowSendModal(false); setIsNacherfassung(false) }}
+        >
           <div className="space-y-4">
+            {isNacherfassung && (
+              <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-sm text-blue-700">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                <span>
+                  <strong>Nur Forderungs-/Ertragsbuchung</strong> wird erstellt (Soll Forderungen / Haben Ertrag). Keine Bankbuchung — der Rechnungsstatus bleibt «Bezahlt». Verwenden Sie dies, wenn die Bankzahlung bereits vom Import stammt.
+                </span>
+              </div>
+            )}
             {itemsMissingAccount.length > 0 && (
               <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-sm text-amber-700">
                 <AlertTriangle size={15} className="mt-0.5 shrink-0" />
@@ -1011,7 +1037,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
 
             <div className="flex gap-3 pt-1">
               <button
-                onClick={() => setShowSendModal(false)}
+                onClick={() => { setShowSendModal(false); setIsNacherfassung(false) }}
                 className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors"
               >
                 Abbrechen
@@ -1021,7 +1047,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                 disabled={isPending || !forderungsKontoId}
                 className="flex-1 py-2.5 rounded-xl bg-[#6B8E7F] hover:bg-[#5a7a6c] text-white text-sm font-medium transition-colors disabled:opacity-50"
               >
-                {isPending ? 'Wird gesendet…' : 'Versenden & Buchen'}
+                {isPending ? 'Wird gebucht…' : isNacherfassung ? 'Forderung nachbuchen' : 'Versenden & Buchen'}
               </button>
             </div>
           </div>
