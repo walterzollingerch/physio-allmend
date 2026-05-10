@@ -3,7 +3,7 @@
 import { useState, useTransition, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Trash2, Save, Send, CheckCircle, XCircle, Search, UserRound, X, Archive, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Save, Send, CheckCircle, XCircle, Search, UserRound, X, Archive, AlertTriangle, RotateCcw } from 'lucide-react'
 
 type Status = 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
 
@@ -104,6 +104,11 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
   // Send modal
   const [showSendModal, setShowSendModal]         = useState(false)
   const [forderungsKontoId, setForderungsKontoId] = useState('')
+
+  // Reset modal (bezahlt → gesendet)
+  const [showResetModal, setShowResetModal]       = useState(false)
+  const [resetEntries, setResetEntries]           = useState<{ id: string; date: string; description: string; amount: number; debit: string; credit: string }[]>([])
+  const [resetLoading, setResetLoading]           = useState(false)
 
   // Derived
   const subtotal    = items.reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0)
@@ -266,6 +271,59 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
     })
   }
 
+  // ── Reset bezahlt → gesendet ──────────────────────────────
+  async function openResetModal() {
+    setResetLoading(true)
+    setShowResetModal(true)
+    const { data: entries } = await supabase
+      .from('journal_entries')
+      .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name)')
+      .eq('invoice_id', inv.id)
+    setResetEntries((entries ?? []).map((e: {
+      id: string; date: string; description: string; amount: number
+      debit_account: { number: string; name: string } | null
+      credit_account: { number: string; name: string } | null
+    }) => ({
+      id: e.id,
+      date: e.date,
+      description: e.description,
+      amount: Number(e.amount),
+      debit:  e.debit_account  ? `${e.debit_account.number} ${e.debit_account.name}`  : '—',
+      credit: e.credit_account ? `${e.credit_account.number} ${e.credit_account.name}` : '—',
+    })))
+    setResetLoading(false)
+  }
+
+  async function handleReset(deleteEntries: boolean) {
+    setError(null)
+    start(async () => {
+      if (deleteEntries && resetEntries.length > 0) {
+        // Salden umkehren
+        const deltas = new Map<string, number>()
+        const { data: rows } = await supabase
+          .from('journal_entries')
+          .select('id, amount, debit_account_id, credit_account_id')
+          .eq('invoice_id', inv.id)
+        for (const row of rows ?? []) {
+          const amt = Number(row.amount)
+          deltas.set(row.debit_account_id,  (deltas.get(row.debit_account_id)  ?? 0) - amt)
+          deltas.set(row.credit_account_id, (deltas.get(row.credit_account_id) ?? 0) - amt)
+        }
+        for (const [accountId, delta] of deltas.entries()) {
+          const { data: acc } = await supabase.from('accounts').select('balance').eq('id', accountId).single()
+          if (acc) await supabase.from('accounts').update({ balance: Number(acc.balance) + delta }).eq('id', accountId)
+        }
+        await supabase.from('journal_entries').delete().eq('invoice_id', inv.id)
+      }
+      const { error: invErr } = await supabase.from('invoices').update({ status: 'gesendet' }).eq('id', inv.id)
+      if (invErr) { setError(invErr.message); return }
+      setInv(prev => ({ ...prev, status: 'gesendet' }))
+      setShowResetModal(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    })
+  }
+
   async function handleDelete() {
     if (!confirm('Rechnung wirklich löschen?')) return
     await supabase.from('invoices').delete().eq('id', inv.id)
@@ -324,6 +382,15 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
               className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded-lg transition-colors"
             >
               <CheckCircle size={15} /> Als bezahlt markieren
+            </button>
+          )}
+          {inv.status === 'bezahlt' && (
+            <button
+              onClick={openResetModal}
+              disabled={isPending}
+              className="flex items-center gap-2 border border-amber-300 text-amber-700 hover:bg-amber-50 text-sm px-3 py-2 rounded-lg transition-colors"
+            >
+              <RotateCcw size={14} /> Auf offen zurücksetzen
             </button>
           )}
           {(inv.status === 'gesendet' || inv.status === 'bezahlt') && (
@@ -591,6 +658,81 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                 ))}
               </ul>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Reset Modal (bezahlt → gesendet) ───────────────── */}
+      {showResetModal && (
+        <Modal title="Rechnung auf «Gesendet» zurücksetzen" onClose={() => setShowResetModal(false)}>
+          <div className="space-y-4">
+            {resetLoading ? (
+              <p className="text-sm text-[#7A6E60] text-center py-4">Buchungen werden geladen…</p>
+            ) : resetEntries.length === 0 ? (
+              <div className="bg-[#F7F2EC] rounded-xl px-4 py-3 text-sm text-[#7A6E60]">
+                Keine verknüpften Buchungen gefunden. Status wird nur zurückgesetzt.
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-sm text-amber-700">
+                  <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                  <span>
+                    Diese Rechnung hat {resetEntries.length} verknüpfte Buchung{resetEntries.length > 1 ? 'en' : ''}. Sollen diese ebenfalls gelöscht und die Kontosalden korrigiert werden?
+                  </span>
+                </div>
+                <div className="rounded-lg border border-[#E1D6C2] overflow-hidden text-xs">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-[#F7F2EC] text-[#7A6E60]">
+                        <th className="text-left px-3 py-2">Datum</th>
+                        <th className="text-left py-2">Beschreibung</th>
+                        <th className="text-left py-2">Soll</th>
+                        <th className="text-left py-2">Haben</th>
+                        <th className="text-right py-2 pr-3">CHF</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resetEntries.map(e => (
+                        <tr key={e.id} className="border-t border-[#F7F2EC]">
+                          <td className="px-3 py-1.5 text-[#7A6E60]">{e.date}</td>
+                          <td className="py-1.5 text-[#2A2622] max-w-[120px] truncate">{e.description}</td>
+                          <td className="py-1.5 text-[#4A4138]">{e.debit}</td>
+                          <td className="py-1.5 text-[#4A4138]">{e.credit}</td>
+                          <td className="py-1.5 pr-3 text-right font-medium text-[#2A2622]">{fmt(e.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+
+            <div className="flex gap-3 pt-1 flex-col sm:flex-row">
+              <button
+                onClick={() => setShowResetModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-[#E1D6C2] text-sm text-[#7A6E60] hover:bg-[#F7F2EC] transition-colors"
+              >
+                Abbrechen
+              </button>
+              {resetEntries.length > 0 && !resetLoading && (
+                <button
+                  onClick={() => handleReset(false)}
+                  disabled={isPending}
+                  className="flex-1 py-2.5 rounded-xl border border-amber-300 text-amber-700 hover:bg-amber-50 text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  {isPending ? 'Wird gesetzt…' : 'Nur Status zurücksetzen'}
+                </button>
+              )}
+              <button
+                onClick={() => handleReset(resetEntries.length > 0)}
+                disabled={isPending || resetLoading}
+                className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {isPending ? 'Wird verarbeitet…' : resetEntries.length > 0 ? 'Buchungen löschen & zurücksetzen' : 'Zurücksetzen'}
+              </button>
+            </div>
           </div>
         </Modal>
       )}
