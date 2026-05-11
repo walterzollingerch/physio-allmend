@@ -39,3 +39,15 @@ CREATE POLICY "profiles_update_admin" ON public.profiles
 
 CREATE POLICY "profiles_delete_admin" ON public.profiles
   FOR DELETE USING (public.get_my_role() = 'admin');
+
+-- ============================================================
+-- RLS FIX 2 – fehlende UPDATE-Policy auf journal_entries
+-- journal_select / journal_insert / journal_delete existieren,
+-- aber kein journal_update → alle Updates wurden still blockiert.
+-- ============================================================
+DROP POLICY IF EXISTS "journal_update" ON public.journal_entries;
+
+CREATE POLICY "journal_update" ON public.journal_entries
+  FOR UPDATE
+  USING     (public.get_my_role() IN ('admin', 'physio'))
+  WITH CHECK (public.get_my_role() IN ('admin', 'physio'));
