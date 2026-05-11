@@ -901,10 +901,11 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                     <thead>
                       <tr className="text-[#7A6E60] uppercase tracking-wide bg-[#F7F2EC] border-b border-[#E1D6C2]">
                         <th className="text-left px-5 py-2.5 w-[10%]">Datum</th>
-                        <th className="text-left py-2.5 w-[28%]">Beschreibung</th>
-                        <th className="text-left py-2.5 w-[24%]">Soll</th>
-                        <th className="text-left py-2.5 w-[24%]">Haben</th>
-                        <th className="text-right py-2.5 pr-5 w-[14%]">CHF</th>
+                        <th className="text-left py-2.5 w-[25%]">Beschreibung</th>
+                        <th className="text-left py-2.5 w-[22%]">Soll</th>
+                        <th className="text-right py-2.5 w-[11%]">CHF Soll</th>
+                        <th className="text-right py-2.5 w-[11%]">CHF Haben</th>
+                        <th className="text-left py-2.5 pl-4 pr-5 w-[21%]">Haben</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -913,19 +914,25 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                           <td className="px-5 py-2 text-[#7A6E60] whitespace-nowrap font-mono">{e.date}</td>
                           <td className="py-2 pr-3 text-[#2A2622]">{e.description}</td>
                           <td className="py-2 pr-3 text-[#4A4138]">{e.debit}</td>
-                          <td className="py-2 pr-3 text-[#4A4138]">{e.credit}</td>
-                          <td className="py-2 pr-5 text-right font-medium text-[#2A2622]">{fmt(e.amount)}</td>
+                          <td className="py-2 text-right font-medium text-[#2A2622]">{fmt(e.amount)}</td>
+                          <td className="py-2 text-right font-medium text-[#2A2622]">{fmt(e.amount)}</td>
+                          <td className="py-2 pl-4 pr-5 text-[#4A4138]">{e.credit}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot>
                       <tr className="border-t border-[#E1D6C2] bg-[#F7F2EC]">
-                        <td colSpan={4} className="px-5 py-2.5 text-[#7A6E60]">
+                        <td colSpan={2} className="px-5 py-2.5 text-[#7A6E60]">
                           {buchungen.length} Buchung{buchungen.length !== 1 ? 'en' : ''} total
                         </td>
-                        <td className="py-2.5 pr-5 text-right font-bold text-[#2A2622]">
+                        <td />
+                        <td className="py-2.5 text-right font-bold text-[#2A2622]">
                           {fmt(buchungen.reduce((s, e) => s + e.amount, 0))}
                         </td>
+                        <td className="py-2.5 text-right font-bold text-[#2A2622]">
+                          {fmt(buchungen.reduce((s, e) => s + e.amount, 0))}
+                        </td>
+                        <td />
                       </tr>
                     </tfoot>
                   </table>
