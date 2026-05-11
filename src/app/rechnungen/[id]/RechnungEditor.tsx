@@ -218,8 +218,29 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
 
   // Buchungen-Panel
   const [showBuchungen, setShowBuchungen]       = useState(false)
-  const [buchungen, setBuchungen]               = useState<{ id: string; date: string; description: string; amount: number; debit: string; credit: string }[]>([])
+  const [buchungen, setBuchungen]               = useState<{ id: string; date: string; description: string; amount: number; signedAmount: number; debit: string; credit: string }[]>([])
   const [buchungenLoading, setBuchungenLoading] = useState(false)
+
+  type BuchungRaw = {
+    id: string; date: string; description: string; amount: number
+    debit_account:  { number: string; name: string } | null
+    credit_account: { number: string; name: string; type: string } | null
+  }
+  function mapBuchung(e: BuchungRaw) {
+    // Vorzeichen aus Sicht der Rechnung:
+    // credit = Ertragskonto → Forderung entsteht → positiv
+    // credit = anderes (Aktiv/Passiv) → Forderung sinkt (Zahlung, Rabatt) → negativ
+    const isPositive = e.credit_account?.type === 'ertrag'
+    return {
+      id: e.id,
+      date: e.date,
+      description: e.description,
+      amount: Number(e.amount),
+      signedAmount: isPositive ? Number(e.amount) : -Number(e.amount),
+      debit:  e.debit_account  ? `${e.debit_account.number} ${e.debit_account.name}`  : '—',
+      credit: e.credit_account ? `${e.credit_account.number} ${e.credit_account.name}` : '—',
+    }
+  }
 
   async function loadBuchungen() {
     if (showBuchungen) { setShowBuchungen(false); return }
@@ -227,22 +248,11 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
     setShowBuchungen(true)
     const { data: entries } = await supabase
       .from('journal_entries')
-      .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name)')
+      .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name,type)')
       .eq('invoice_id', inv.id)
       .eq('is_deleted', false)
       .order('date', { ascending: true })
-    setBuchungen((entries ?? []).map((e: {
-      id: string; date: string; description: string; amount: number
-      debit_account: { number: string; name: string } | null
-      credit_account: { number: string; name: string } | null
-    }) => ({
-      id: e.id,
-      date: e.date,
-      description: e.description,
-      amount: Number(e.amount),
-      debit:  e.debit_account  ? `${e.debit_account.number} ${e.debit_account.name}`  : '—',
-      credit: e.credit_account ? `${e.credit_account.number} ${e.credit_account.name}` : '—',
-    })))
+    setBuchungen((entries ?? []).map(mapBuchung))
     setBuchungenLoading(false)
   }
 
@@ -250,22 +260,11 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
     setBuchungenLoading(true)
     const { data: entries } = await supabase
       .from('journal_entries')
-      .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name)')
+      .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name,type)')
       .eq('invoice_id', inv.id)
       .eq('is_deleted', false)
       .order('date', { ascending: true })
-    setBuchungen((entries ?? []).map((e: {
-      id: string; date: string; description: string; amount: number
-      debit_account: { number: string; name: string } | null
-      credit_account: { number: string; name: string } | null
-    }) => ({
-      id: e.id,
-      date: e.date,
-      description: e.description,
-      amount: Number(e.amount),
-      debit:  e.debit_account  ? `${e.debit_account.number} ${e.debit_account.name}`  : '—',
-      credit: e.credit_account ? `${e.credit_account.number} ${e.credit_account.name}` : '—',
-    })))
+    setBuchungen((entries ?? []).map(mapBuchung))
     setBuchungenLoading(false)
   }
 
@@ -897,43 +896,47 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
                 </p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs" style={{ minWidth: '620px' }}>
+                  <table className="w-full text-xs" style={{ minWidth: '560px' }}>
                     <thead>
                       <tr className="text-[#7A6E60] uppercase tracking-wide bg-[#F7F2EC] border-b border-[#E1D6C2]">
                         <th className="text-left px-5 py-2.5 w-[10%]">Datum</th>
-                        <th className="text-left py-2.5 w-[25%]">Beschreibung</th>
+                        <th className="text-left py-2.5 w-[30%]">Beschreibung</th>
                         <th className="text-left py-2.5 w-[22%]">Soll</th>
-                        <th className="text-right py-2.5 w-[11%]">CHF Soll</th>
-                        <th className="text-right py-2.5 w-[11%]">CHF Haben</th>
-                        <th className="text-left py-2.5 pl-4 pr-5 w-[21%]">Haben</th>
+                        <th className="text-left py-2.5 w-[22%]">Haben</th>
+                        <th className="text-right py-2.5 pr-5 w-[16%]">CHF</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {buchungen.map(e => (
-                        <tr key={e.id} className="border-t border-[#F7F2EC] hover:bg-[#FDFAF6]">
-                          <td className="px-5 py-2 text-[#7A6E60] whitespace-nowrap font-mono">{e.date}</td>
-                          <td className="py-2 pr-3 text-[#2A2622]">{e.description}</td>
-                          <td className="py-2 pr-3 text-[#4A4138]">{e.debit}</td>
-                          <td className="py-2 text-right font-medium text-[#2A2622]">{fmt(e.amount)}</td>
-                          <td className="py-2 text-right font-medium text-[#2A2622]">{fmt(e.amount)}</td>
-                          <td className="py-2 pl-4 pr-5 text-[#4A4138]">{e.credit}</td>
-                        </tr>
-                      ))}
+                      {buchungen.map(e => {
+                        const isPos = e.signedAmount >= 0
+                        return (
+                          <tr key={e.id} className="border-t border-[#F7F2EC] hover:bg-[#FDFAF6]">
+                            <td className="px-5 py-2 text-[#7A6E60] whitespace-nowrap font-mono">{e.date}</td>
+                            <td className="py-2 pr-3 text-[#2A2622]">{e.description}</td>
+                            <td className="py-2 pr-3 text-[#4A4138]">{e.debit}</td>
+                            <td className="py-2 pr-3 text-[#4A4138]">{e.credit}</td>
+                            <td className={`py-2 pr-5 text-right font-medium tabular-nums ${isPos ? 'text-[#2A2622]' : 'text-[#B04040]'}`}>
+                              {isPos ? '+' : '−'}{fmt(e.amount)}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                     <tfoot>
-                      <tr className="border-t border-[#E1D6C2] bg-[#F7F2EC]">
-                        <td colSpan={2} className="px-5 py-2.5 text-[#7A6E60]">
-                          {buchungen.length} Buchung{buchungen.length !== 1 ? 'en' : ''} total
-                        </td>
-                        <td />
-                        <td className="py-2.5 text-right font-bold text-[#2A2622]">
-                          {fmt(buchungen.reduce((s, e) => s + e.amount, 0))}
-                        </td>
-                        <td className="py-2.5 text-right font-bold text-[#2A2622]">
-                          {fmt(buchungen.reduce((s, e) => s + e.amount, 0))}
-                        </td>
-                        <td />
-                      </tr>
+                      {(() => {
+                        const total = buchungen.reduce((s, e) => s + e.signedAmount, 0)
+                        const isZero = Math.abs(total) < 0.005
+                        return (
+                          <tr className="border-t border-[#E1D6C2] bg-[#F7F2EC]">
+                            <td colSpan={4} className="px-5 py-2.5 text-[#7A6E60]">
+                              {buchungen.length} Buchung{buchungen.length !== 1 ? 'en' : ''} total
+                            </td>
+                            <td className={`py-2.5 pr-5 text-right font-bold tabular-nums ${isZero ? 'text-[#6B8E7F]' : total > 0 ? 'text-[#2A2622]' : 'text-[#B04040]'}`}>
+                              {isZero ? '0.00' : (total > 0 ? '+' : '−') + fmt(Math.abs(total))}
+                            </td>
+                          </tr>
+                        )
+                      })()}
                     </tfoot>
                   </table>
                 </div>
