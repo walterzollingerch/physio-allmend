@@ -154,6 +154,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
       .from('journal_entries')
       .select('debit_account_id, debit_account:accounts!debit_account_id(id,number,name,type)')
       .eq('invoice_id', inv.id)
+      .eq('is_deleted', false)
 
     const fordAccounts: { account_id: string; account_number: string; account_name: string }[] = []
     for (const e of (entries ?? []) as { debit_account_id: string; debit_account: { id: string; number: string; name: string; type: string } | null }[]) {
@@ -228,6 +229,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
       .from('journal_entries')
       .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name)')
       .eq('invoice_id', inv.id)
+      .eq('is_deleted', false)
       .order('date', { ascending: true })
     setBuchungen((entries ?? []).map((e: {
       id: string; date: string; description: string; amount: number
@@ -250,6 +252,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
       .from('journal_entries')
       .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name)')
       .eq('invoice_id', inv.id)
+      .eq('is_deleted', false)
       .order('date', { ascending: true })
     setBuchungen((entries ?? []).map((e: {
       id: string; date: string; description: string; amount: number
@@ -428,11 +431,12 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
   async function handleArchive() {
     setError(null)
     start(async () => {
-      // Fetch related journal entries with fresh account balances
+      // Fetch related journal entries (nur aktive) mit frischen Kontosalden
       const { data: entries } = await supabase
         .from('journal_entries')
         .select('id, amount, debit_account_id, credit_account_id')
         .eq('invoice_id', inv.id)
+        .eq('is_deleted', false)
 
       if (entries && entries.length > 0) {
         // Accumulate balance reversals
@@ -451,8 +455,8 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           }
         }
 
-        // Delete the journal entries
-        await supabase.from('journal_entries').delete().eq('invoice_id', inv.id)
+        // Soft-Delete: is_deleted = true statt physisch löschen
+        await supabase.from('journal_entries').update({ is_deleted: true }).eq('invoice_id', inv.id)
       }
 
       // Set invoice to archiviert
@@ -473,6 +477,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
       .from('journal_entries')
       .select('id, date, description, amount, debit_account:accounts!debit_account_id(number,name), credit_account:accounts!credit_account_id(number,name)')
       .eq('invoice_id', inv.id)
+      .eq('is_deleted', false)
     setResetEntries((entries ?? []).map((e: {
       id: string; date: string; description: string; amount: number
       debit_account: { number: string; name: string } | null
@@ -498,6 +503,7 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           .from('journal_entries')
           .select('id, amount, debit_account_id, credit_account_id')
           .eq('invoice_id', inv.id)
+          .eq('is_deleted', false)
         for (const row of rows ?? []) {
           const amt = Number(row.amount)
           deltas.set(row.debit_account_id,  (deltas.get(row.debit_account_id)  ?? 0) - amt)
@@ -507,7 +513,8 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
           const { data: acc } = await supabase.from('accounts').select('balance').eq('id', accountId).single()
           if (acc) await supabase.from('accounts').update({ balance: Number(acc.balance) + delta }).eq('id', accountId)
         }
-        await supabase.from('journal_entries').delete().eq('invoice_id', inv.id)
+        // Soft-Delete: is_deleted = true statt physisch löschen
+        await supabase.from('journal_entries').update({ is_deleted: true }).eq('invoice_id', inv.id)
       }
       const { error: invErr } = await supabase.from('invoices').update({ status: 'gesendet' }).eq('id', inv.id)
       if (invErr) { setError(invErr.message); return }

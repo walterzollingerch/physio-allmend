@@ -310,6 +310,7 @@ export interface Database {
           fiscal_year_id: string | null
           created_by: string | null
           created_at: string
+          is_deleted: boolean
         }
         Insert: {
           id?: string
@@ -322,6 +323,7 @@ export interface Database {
           fiscal_year_id?: string | null
           created_by?: string | null
           created_at?: string
+          is_deleted?: boolean
         }
         Update: {
           date?: string
@@ -331,6 +333,7 @@ export interface Database {
           amount?: number
           invoice_id?: string | null
           fiscal_year_id?: string | null
+          is_deleted?: boolean
         }
         Relationships: []
       }

@@ -2086,7 +2086,8 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
         newBalances[r.id] = r.newBalance
       }
 
-      await supabase.from('journal_entries').delete().eq('id', entry.id)
+      // Soft-Delete: is_deleted = true statt physisch löschen
+      await supabase.from('journal_entries').update({ is_deleted: true }).eq('id', entry.id)
 
       onJournalEntriesChange(prev => prev.filter(e => e.id !== entry.id))
       onAccountsChange(prev => prev.map(a => a.id in newBalances ? { ...a, balance: newBalances[a.id] } : a))
