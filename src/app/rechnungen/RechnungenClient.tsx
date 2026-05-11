@@ -378,7 +378,7 @@ export default function RechnungenClient({
       </div>
 
       {/* Invoice list */}
-      <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden">
+      <div className="bg-white rounded-2xl border border-[#E1D6C2] overflow-hidden flex flex-col" style={{ maxHeight: '65vh' }}>
         {visible.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-[#7A6E60]">
             <FileText size={40} className="mb-3 opacity-30" />
@@ -401,45 +401,55 @@ export default function RechnungenClient({
             )}
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
-                <th className="text-left px-5 py-3">Nr.</th>
-                <th className="text-left py-3">Kunde</th>
-                <th className="text-left py-3 hidden md:table-cell">Referenz</th>
-                <th className="text-left py-3 hidden sm:table-cell">Datum</th>
-                <th className="text-left py-3 hidden lg:table-cell">Fällig</th>
-                <th className="text-left py-3">Status</th>
-                <th className="text-right py-3 pr-5">Total (CHF)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map(inv => {
-                const st = STATUS_LABELS[inv.status] ?? STATUS_LABELS.entwurf
-                return (
-                  <tr
-                    key={inv.id}
-                    onClick={() => router.push(`/rechnungen/${inv.id}`)}
-                    className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] cursor-pointer"
-                  >
-                    <td className="px-5 py-3 font-mono font-semibold text-[#6B8E7F]">{inv.number}</td>
-                    <td className="py-3 pr-4 font-medium text-[#2A2622]">
-                      {inv.customer_name || <span className="text-[#7A6E60] italic">Kein Name</span>}
-                    </td>
-                    <td className="py-3 pr-4 text-[#7A6E60] text-xs hidden md:table-cell">
-                      {inv.reference || <span className="text-[#C5B99A]">—</span>}
-                    </td>
-                    <td className="py-3 pr-4 text-[#4A4138] hidden sm:table-cell">{fmtDate(inv.invoice_date)}</td>
-                    <td className="py-3 pr-4 text-[#4A4138] hidden lg:table-cell">{fmtDate(inv.due_date)}</td>
-                    <td className="py-3 pr-4">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${st.cls}`}>{st.label}</span>
-                    </td>
-                    <td className="py-3 pr-5 text-right font-semibold text-[#2A2622]">{fmt(inv.total)}</td>
+          <>
+            {/* Sticky Header */}
+            <div className="shrink-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-[#7A6E60] uppercase tracking-wide border-b border-[#E1D6C2] bg-[#F7F2EC]">
+                    <th className="text-left px-5 py-3">Nr.</th>
+                    <th className="text-left py-3">Kunde</th>
+                    <th className="text-left py-3 hidden md:table-cell">Referenz</th>
+                    <th className="text-left py-3 hidden sm:table-cell">Datum</th>
+                    <th className="text-left py-3 hidden lg:table-cell">Fällig</th>
+                    <th className="text-left py-3">Status</th>
+                    <th className="text-right py-3 pr-5">Total (CHF)</th>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                </thead>
+              </table>
+            </div>
+            {/* Scrollbarer Body */}
+            <div className="overflow-y-auto flex-1">
+              <table className="w-full text-sm">
+                <tbody>
+                  {visible.map(inv => {
+                    const st = STATUS_LABELS[inv.status] ?? STATUS_LABELS.entwurf
+                    return (
+                      <tr
+                        key={inv.id}
+                        onClick={() => router.push(`/rechnungen/${inv.id}`)}
+                        className="border-b border-[#F7F2EC] last:border-0 hover:bg-[#FDFAF6] cursor-pointer"
+                      >
+                        <td className="px-5 py-3 font-mono font-semibold text-[#6B8E7F]">{inv.number}</td>
+                        <td className="py-3 pr-4 font-medium text-[#2A2622]">
+                          {inv.customer_name || <span className="text-[#7A6E60] italic">Kein Name</span>}
+                        </td>
+                        <td className="py-3 pr-4 text-[#7A6E60] text-xs hidden md:table-cell">
+                          {inv.reference || <span className="text-[#C5B99A]">—</span>}
+                        </td>
+                        <td className="py-3 pr-4 text-[#4A4138] hidden sm:table-cell">{fmtDate(inv.invoice_date)}</td>
+                        <td className="py-3 pr-4 text-[#4A4138] hidden lg:table-cell">{fmtDate(inv.due_date)}</td>
+                        <td className="py-3 pr-4">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${st.cls}`}>{st.label}</span>
+                        </td>
+                        <td className="py-3 pr-5 text-right font-semibold text-[#2A2622]">{fmt(inv.total)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
