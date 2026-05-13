@@ -1,0 +1,36 @@
+name: Wöchentliches Datenbank-Backup
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'   # jeden Sonntag um 02:00 UTC
+  workflow_dispatch:        # auch manuell auslösbar
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: PostgreSQL Client installieren
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+
+      - name: Datenbank-Backup erstellen
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          FILENAME="backup_$(date +%Y-%m-%d).sql"
+          pg_dump \
+            "postgresql://postgres.${{ secrets.SUPABASE_PROJECT_REF }}:${{ secrets.SUPABASE_DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:5432/postgres" \
+            --no-owner \
+            --no-acl \
+            -f "$FILENAME"
+          gzip "$FILENAME"
+          echo "BACKUP_FILE=${FILENAME}.gz" >> $GITHUB_ENV
+
+      - name: Backup als Artefakt speichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 90
