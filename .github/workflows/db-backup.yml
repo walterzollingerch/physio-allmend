@@ -16,12 +16,10 @@ jobs:
           sudo apt-get install -y postgresql-client
 
       - name: Datenbank-Backup erstellen
-        env:
-          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           FILENAME="backup_$(date +%Y-%m-%d).sql"
           pg_dump \
-            "postgresql://postgres:${{ secrets.SUPABASE_DB_PASSWORD }}@db.${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co:5432/postgres" \
+            "${{ secrets.SUPABASE_DB_URL }}" \
             --no-owner \
             --no-acl \
             -f "$FILENAME"
