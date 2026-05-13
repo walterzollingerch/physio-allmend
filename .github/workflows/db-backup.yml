@@ -15,6 +15,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client
 
+      - name: Verbindung prüfen (Debug)
+        run: |
+          URL="${{ secrets.SUPABASE_DB_URL }}"
+          # Zeige nur Benutzername und Host, kein Passwort
+          echo "Host: $(echo $URL | grep -oP '(?<=@)[^/]+')"
+          echo "User: $(echo $URL | grep -oP '(?<=//)[^:@]+')"
+
       - name: Datenbank-Backup erstellen
         run: |
           FILENAME="backup_$(date +%Y-%m-%d).sql"
