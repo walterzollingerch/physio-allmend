@@ -36,25 +36,25 @@ export function buildSwissQrString(d: SwissQrData): string {
     '',                                         // 9  PLZ (leer bei K)
     '',                                         // 10 Ort (leer bei K)
     d.creditorCountry ?? 'CH',                  // 11 Land
-    // Endgültiger Gläubiger (gesperrt, immer leer)
-    '', '', '', '', '', '',                     // 12–17
+    // Endgültiger Gläubiger (gesperrt, immer leer) – 7 Felder: 12–18
+    '', '', '', '', '', '', '',                 // 12 Adresstyp, 13 Name, 14 Adr1, 15 Adr2, 16 PLZ, 17 Ort, 18 Land
     // Betrag
-    d.amount != null ? d.amount.toFixed(2) : '', // 18 Betrag
-    d.currency ?? 'CHF',                        // 19 Währung
+    d.amount != null ? d.amount.toFixed(2) : '', // 19 Betrag
+    d.currency ?? 'CHF',                        // 20 Währung
     // Zahlungspflichtiger
-    hasDebtor ? 'K' : '',                       // 20 Adresstyp
-    d.debtorName ?? '',                         // 21 Name
-    d.debtorAddress1 ?? '',                     // 22 Adresszeile 1
-    d.debtorAddress2 ?? '',                     // 23 Adresszeile 2
-    '',                                         // 24 PLZ (leer bei K)
-    '',                                         // 25 Ort (leer bei K)
-    hasDebtor ? (d.debtorCountry ?? 'CH') : '', // 26 Land
+    hasDebtor ? 'K' : '',                       // 21 Adresstyp
+    d.debtorName ?? '',                         // 22 Name
+    d.debtorAddress1 ?? '',                     // 23 Adresszeile 1
+    d.debtorAddress2 ?? '',                     // 24 Adresszeile 2
+    '',                                         // 25 PLZ (leer bei K)
+    '',                                         // 26 Ort (leer bei K)
+    hasDebtor ? (d.debtorCountry ?? 'CH') : '', // 27 Land
     // Zahlungsreferenz
-    d.referenceType ?? 'NON',                   // 27 Referenztyp
-    d.reference ?? '',                          // 28 Referenz
-    d.message ?? '',                            // 29 Unstrukturierte Mitteilung
-    'EPD',                                      // 30 Ende Zahlungsdaten
-    '',                                         // 31 Rechnungsinformation (leer)
+    d.referenceType ?? 'NON',                   // 28 Referenztyp
+    d.reference ?? '',                          // 29 Referenz
+    d.message ?? '',                            // 30 Unstrukturierte Mitteilung
+    'EPD',                                      // 31 Ende Zahlungsdaten
+    '',                                         // 32 Rechnungsinformation (leer)
   ]
   return lines.join('\n')
 }
