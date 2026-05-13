@@ -35,7 +35,7 @@ export default function KundeEditor({ customer: initial, isAdmin }: {
   async function handleSave() {
     setError(null)
     start(async () => {
-      const { error: err } = await supabase
+      const { data: rows, error: err } = await supabase
         .from('customers')
         .update({
           customer_number: c.customer_number,
@@ -49,7 +49,9 @@ export default function KundeEditor({ customer: initial, isAdmin }: {
           website: c.website,
         })
         .eq('id', c.id)
+        .select('id')
       if (err) { setError(err.message); return }
+      if (!rows || rows.length === 0) { setError('Speichern fehlgeschlagen – keine Zeile aktualisiert. Bitte Seite neu laden.'); return }
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     })

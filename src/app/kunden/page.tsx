@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { Wordmark } from '@/components/PhysioLogo'
 import { ArrowLeft, LogOut, Plus, Search, Users } from 'lucide-react'
 
-export default async function KundenPage({ searchParams }: { searchParams: { q?: string } }) {
+export default async function KundenPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/auth/login')
@@ -12,7 +12,8 @@ export default async function KundenPage({ searchParams }: { searchParams: { q?:
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
   if (!profile || !['admin', 'physio'].includes(profile.role)) redirect('/dashboard')
 
-  const q = searchParams.q?.trim() ?? ''
+  const { q: qRaw } = await searchParams
+  const q = qRaw?.trim() ?? ''
 
   let query = supabase.from('customers').select('*').order('customer_number')
   if (q) query = query.or(`name.ilike.%${q}%,customer_number.ilike.%${q}%,city.ilike.%${q}%`)
