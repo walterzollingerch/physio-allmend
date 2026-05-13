@@ -10,5 +10,5 @@ export const ORG = {
   email:        '',
   website:      '',
   // CH-IBAN für QR-Einzahlungsschein (wird auf jeder Rechnung verwendet)
-  iban:         'CH56 0840 1016 0519 5200 5',  // ← hier eure IBAN eintragen
+  iban:         'CH14 0840 1016 1326 9940 1',
 } as const
