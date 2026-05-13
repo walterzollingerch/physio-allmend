@@ -29,6 +29,12 @@ interface Invoice {
   discount_type: 'percent' | 'amount'
   discount_value: number
   status: string
+  // Strukturierte Adressfelder (optional, bevorzugt gegenüber customer_address)
+  debtor_street?: string | null
+  debtor_street_number?: string | null
+  debtor_postal_code?: string | null
+  debtor_city?: string | null
+  debtor_country?: string | null
 }
 
 function fmt(n: number) {
@@ -48,12 +54,26 @@ export async function openInvoicePrint(inv: Invoice, items: InvoiceItem[]) {
     : Number(inv.discount_value)
   const total = subtotal - discountAmt
 
+  // ── Strukturierte Adresse aufbauen ──────────────────────────
+  const hasStructured = !!(inv.debtor_street || inv.debtor_postal_code || inv.debtor_city)
+  const streetLine    = hasStructured
+    ? [inv.debtor_street, inv.debtor_street_number].filter(Boolean).join(' ')
+    : ((inv.customer_address ?? '').split('\n').map(l => l.trim()).filter(Boolean)[0] ?? '')
+  const cityLine      = hasStructured
+    ? [inv.debtor_postal_code, inv.debtor_city].filter(Boolean).join(' ')
+    : ((inv.customer_address ?? '').split('\n').map(l => l.trim()).filter(Boolean)[1] ?? '')
+  const countryLine   = hasStructured
+    ? (inv.debtor_country && inv.debtor_country !== 'Schweiz' && inv.debtor_country !== 'CH' ? inv.debtor_country : null)
+    : ((inv.customer_address ?? '').split('\n').map(l => l.trim()).filter(Boolean)[2] ?? null)
+  const countryCode   = hasStructured
+    ? (inv.debtor_country === 'Schweiz' || !inv.debtor_country ? 'CH' : inv.debtor_country)
+    : 'CH'
+
   // ── QR-Rechnung ──────────────────────────────────────────────
   // IBAN: zuerst aus org-config, Fallback auf bank_info-Feld der Rechnung
   const iban = extractIban(ORG.iban) ?? extractIban(inv.bank_info ?? '')
   let qrDataUrl = ''
   if (iban) {
-    const addrLines = (inv.customer_address ?? '').split('\n').map(l => l.trim()).filter(Boolean)
     const qrStr = buildSwissQrString({
       iban,
       creditorName:     ORG.name,
@@ -61,8 +81,9 @@ export async function openInvoicePrint(inv: Invoice, items: InvoiceItem[]) {
       creditorAddress2: ORG.addressLine2,
       creditorCountry:  ORG.country,
       debtorName:       inv.customer_name || undefined,
-      debtorAddress1:   addrLines[0] || undefined,
-      debtorAddress2:   addrLines[1] || undefined,
+      debtorAddress1:   streetLine || undefined,
+      debtorAddress2:   cityLine   || undefined,
+      debtorCountry:    countryCode,
       amount:           total,
       currency:         'CHF',
       referenceType:    'NON',
@@ -84,17 +105,17 @@ export async function openInvoicePrint(inv: Invoice, items: InvoiceItem[]) {
       </tr>`
   }).join('')
 
-  // ── Debitor-Adressblock ──────────────────────────────────────
-  const addrHtml = (inv.customer_address ?? '')
-    .split('\n').map(l => l.trim()).filter(Boolean)
+  // ── Debitor-Adressblock (Briefkopf der Rechnung) ─────────────
+  const addrHtml = [streetLine, cityLine, countryLine]
+    .filter(Boolean)
     .map(l => `<div>${l}</div>`).join('')
 
   // ── QR-Rechnung HTML ─────────────────────────────────────────
   const ibanFmt = iban ? formatIban(iban) : ''
 
-  // Debtor lines for QR bill display
-  const debLines = (inv.customer_address ?? '').split('\n').map(l => l.trim()).filter(Boolean)
-  const debHtml = [inv.customer_name, ...debLines].filter(Boolean).map(l => `<div>${l}</div>`).join('')
+  // Debtor-Block für QR-Schein: Name + Adresszeilen
+  const debHtml = [inv.customer_name, streetLine, cityLine, countryLine]
+    .filter(Boolean).map(l => `<div>${l}</div>`).join('')
   const credHtml = `<div>${ORG.name}</div><div>${ORG.addressLine1}</div><div>${ORG.addressLine2}</div>`
 
   const qrBillHtml = iban ? `
@@ -257,7 +278,14 @@ export async function openInvoicePrint(inv: Invoice, items: InvoiceItem[]) {
   }
   .customer-address {
     font-size: 9pt;
-    line-height: 1.6;
+    line-height: 1.7;
+  }
+  .customer-address .addr-label {
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #999;
+    margin-bottom: 1.5mm;
   }
   .customer-address .name { font-weight: 600; }
   .inv-meta {
@@ -555,8 +583,11 @@ export async function openInvoicePrint(inv: Invoice, items: InvoiceItem[]) {
   <!-- Adresse + Rechnungs-Meta -->
   <div class="meta-row">
     <div class="customer-address">
+      <div class="addr-label">An</div>
       <div class="name">${inv.customer_name}</div>
-      ${addrHtml}
+      ${streetLine ? `<div>${streetLine}</div>` : ''}
+      ${cityLine   ? `<div>${cityLine}</div>`   : ''}
+      ${countryLine ? `<div>${countryLine}</div>` : ''}
     </div>
     <div class="inv-meta">
       <div class="inv-number">Rechnung ${inv.number}</div>

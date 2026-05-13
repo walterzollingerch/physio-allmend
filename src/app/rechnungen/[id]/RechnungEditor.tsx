@@ -129,7 +129,16 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
   async function handlePrint() {
     setPrinting(true)
     try {
-      await openInvoicePrint(inv, items)
+      // Strukturierte Adressfelder aus dem Kundenstamm holen
+      const cust = customers.find(c => c.name === inv.customer_name)
+      await openInvoicePrint({
+        ...inv,
+        debtor_street:        cust?.street        ?? null,
+        debtor_street_number: cust?.street_number ?? null,
+        debtor_postal_code:   cust?.postal_code   ?? null,
+        debtor_city:          cust?.city          ?? null,
+        debtor_country:       cust?.country       ?? null,
+      }, items)
     } finally {
       setPrinting(false)
     }
