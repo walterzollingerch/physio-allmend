@@ -21,7 +21,7 @@ jobs:
         run: |
           FILENAME="backup_$(date +%Y-%m-%d).sql"
           pg_dump \
-            "postgresql://postgres.${{ secrets.SUPABASE_PROJECT_REF }}:${{ secrets.SUPABASE_DB_PASSWORD }}@aws-0-eu-central-1.pooler.supabase.com:5432/postgres" \
+            "postgresql://postgres:${{ secrets.SUPABASE_DB_PASSWORD }}@db.${{ secrets.SUPABASE_PROJECT_REF }}.supabase.co:5432/postgres" \
             --no-owner \
             --no-acl \
             -f "$FILENAME"
