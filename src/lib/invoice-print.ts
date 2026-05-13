@@ -49,7 +49,8 @@ export async function openInvoicePrint(inv: Invoice, items: InvoiceItem[]) {
   const total = subtotal - discountAmt
 
   // ── QR-Rechnung ──────────────────────────────────────────────
-  const iban = extractIban(inv.bank_info ?? '')
+  // IBAN: zuerst aus org-config, Fallback auf bank_info-Feld der Rechnung
+  const iban = extractIban(ORG.iban) ?? extractIban(inv.bank_info ?? '')
   let qrDataUrl = ''
   if (iban) {
     const addrLines = (inv.customer_address ?? '').split('\n').map(l => l.trim()).filter(Boolean)
