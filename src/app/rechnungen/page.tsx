@@ -24,6 +24,7 @@ export default async function RechnungenPage() {
   const { data: invoices } = await supabase
     .from('invoices')
     .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, rounding_diff, reference, invoice_items(unit_price, quantity)')
+    .eq('is_deleted', false)
     .order('number', { ascending: false }) as { data: InvoiceWithItems[] | null; error: unknown }
 
   const withTotals = (invoices ?? []).map(inv => {

@@ -1622,6 +1622,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     const { data } = await supabase
       .from('invoices')
       .select('id, number, customer_name, invoice_date, due_date, status, discount_type, discount_value, rounding_diff, reference, invoice_items(unit_price, quantity)')
+      .eq('is_deleted', false)
       .in('status', ['entwurf', 'gesendet'])
       .order('status')   // gesendet vor entwurf
       .order('number', { ascending: false })
@@ -1666,6 +1667,7 @@ function BuchungenTab({ accounts, journalEntries, selectedFiscalYearId, selected
     const { data: invData } = await supabase
       .from('invoices')
       .select('id, number, customer_name, invoice_date, due_date, discount_type, discount_value, rounding_diff, reference, invoice_items(unit_price, quantity)')
+      .eq('is_deleted', false)
       .eq('status', 'gesendet')
     const openInvList: InvoiceForPayment[] = (invData ?? []).map((inv: {
       id: string; number: string; customer_name: string; invoice_date: string; due_date: string | null

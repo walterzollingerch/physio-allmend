@@ -15,7 +15,7 @@ export default async function NeuerKundePage() {
     .select('customer_number')
     .order('customer_number', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   const nextNum = last
     ? 'A' + String(parseInt(last.customer_number.replace('A', '')) + 1).padStart(4, '0')

@@ -60,7 +60,8 @@ export default function KundeEditor({ customer: initial, isAdmin }: {
   async function handleDelete() {
     if (!confirm(`Kunde "${c.name}" wirklich löschen?`)) return
     start(async () => {
-      await supabase.from('customers').delete().eq('id', c.id)
+      // Soft-Delete: is_deleted = true statt physisch löschen
+      await supabase.from('customers').update({ is_deleted: true }).eq('id', c.id)
       router.push('/kunden')
     })
   }

@@ -535,7 +535,8 @@ export default function RechnungEditor({ invoice: initial, initialItems, isAdmin
 
   async function handleDelete() {
     if (!confirm('Rechnung wirklich löschen?')) return
-    await supabase.from('invoices').delete().eq('id', inv.id)
+    // Soft-Delete: is_deleted = true statt physisch löschen
+    await supabase.from('invoices').update({ is_deleted: true }).eq('id', inv.id)
     router.push('/rechnungen')
   }
 

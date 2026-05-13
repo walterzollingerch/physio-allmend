@@ -76,6 +76,7 @@ export interface Database {
           website: string | null
           created_at: string
           updated_at: string
+          is_deleted: boolean
         }
         Insert: {
           id?: string
@@ -90,6 +91,7 @@ export interface Database {
           website?: string | null
           created_at?: string
           updated_at?: string
+          is_deleted?: boolean
         }
         Update: {
           customer_number?: string
@@ -102,6 +104,7 @@ export interface Database {
           phone?: string | null
           website?: string | null
           updated_at?: string
+          is_deleted?: boolean
         }
         Relationships: []
       }
@@ -222,6 +225,7 @@ export interface Database {
           created_by: string | null
           created_at: string
           updated_at: string
+          is_deleted: boolean
         }
         Insert: {
           id?: string
@@ -243,6 +247,7 @@ export interface Database {
           created_by?: string | null
           created_at?: string
           updated_at?: string
+          is_deleted?: boolean
         }
         Update: {
           number?: string
@@ -261,6 +266,7 @@ export interface Database {
           rounding_diff?: number
           status?: 'entwurf' | 'gesendet' | 'bezahlt' | 'archiviert'
           updated_at?: string
+          is_deleted?: boolean
         }
         Relationships: []
       }

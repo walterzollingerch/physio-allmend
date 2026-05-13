@@ -15,7 +15,7 @@ export default async function KundenPage({ searchParams }: { searchParams: Promi
   const { q: qRaw } = await searchParams
   const q = qRaw?.trim() ?? ''
 
-  let query = supabase.from('customers').select('*').order('customer_number')
+  let query = supabase.from('customers').select('*').eq('is_deleted', false).order('customer_number')
   if (q) query = query.or(`name.ilike.%${q}%,customer_number.ilike.%${q}%,city.ilike.%${q}%`)
 
   const { data: customers } = await query
