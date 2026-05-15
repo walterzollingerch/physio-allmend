@@ -27,7 +27,7 @@ jobs:
           DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           FILENAME="backup_$(date +%Y-%m-%d).sql"
-          pg_dump "$DATABASE_URL" \
+          pg_dump --dbname="$DATABASE_URL" \
             --no-owner \
             --no-acl \
             -f "$FILENAME"
