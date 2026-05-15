@@ -10,22 +10,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: PostgreSQL Client installieren
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+      - name: Supabase CLI installieren
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
 
       - name: Datenbank-Backup erstellen
-        env:
-          PGHOST: aws-0-eu-central-1.pooler.supabase.com
-          PGPORT: "5432"
-          PGUSER: postgres.${{ secrets.SUPABASE_PROJECT_REF }}
-          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-          PGDATABASE: postgres
-          PGSSLMODE: require
         run: |
           FILENAME="backup_$(date +%Y-%m-%d).sql"
-          pg_dump --no-owner --no-acl -f "$FILENAME"
+          supabase db dump \
+            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
+            --password ${{ secrets.SUPABASE_DB_PASSWORD }} \
+            -f "$FILENAME"
           gzip "$FILENAME"
           echo "BACKUP_FILE=${FILENAME}.gz" >> $GITHUB_ENV
 
