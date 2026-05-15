@@ -16,12 +16,13 @@ jobs:
           version: latest
 
       - name: Datenbank-Backup erstellen
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
           FILENAME="backup_$(date +%Y-%m-%d).sql"
-          supabase db dump \
-            --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} \
-            --password ${{ secrets.SUPABASE_DB_PASSWORD }} \
-            -f "$FILENAME"
+          DB_URL="postgresql://postgres.${SUPABASE_PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-eu-west-1.pooler.supabase.com:5432/postgres"
+          supabase db dump --db-url "$DB_URL" -f "$FILENAME"
           gzip "$FILENAME"
           echo "BACKUP_FILE=${FILENAME}.gz" >> $GITHUB_ENV
 
