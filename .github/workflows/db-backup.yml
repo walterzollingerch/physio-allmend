@@ -23,10 +23,11 @@ jobs:
           echo "User: $(echo $URL | grep -oP '(?<=//)[^:@]+')"
 
       - name: Datenbank-Backup erstellen
+        env:
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           FILENAME="backup_$(date +%Y-%m-%d).sql"
-          pg_dump \
-            "${{ secrets.SUPABASE_DB_URL }}" \
+          pg_dump "$DATABASE_URL" \
             --no-owner \
             --no-acl \
             -f "$FILENAME"
