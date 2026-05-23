@@ -249,18 +249,8 @@ function Hero() {
           </ul>
         </div>
         <div className="relative">
-          <div className="rounded-2xl overflow-hidden bg-[#C7D6CD]/30 aspect-[4/5] flex items-end p-5">
-            {/* Platzhalter Bild */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <svg className="w-full h-full opacity-10" viewBox="0 0 400 500" preserveAspectRatio="xMidYMid slice">
-                <defs>
-                  <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                    <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#6B8E7F" strokeWidth="0.5"/>
-                  </pattern>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#grid)" />
-              </svg>
-            </div>
+          <div className="rounded-2xl overflow-hidden aspect-[4/5] flex items-end p-5">
+            <img src="/praxis.jpg" alt="Behandlungsraum Physio Allmend" className="absolute inset-0 w-full h-full object-cover" />
             <div className="relative z-10 bg-white/90 backdrop-blur rounded-xl px-4 py-2.5 flex items-center gap-2.5 shadow-sm">
               <span className="w-2 h-2 rounded-full bg-[#6B8E7F] animate-pulse" />
               <span className="text-sm font-medium text-[#2A2622]">Baden AG</span>
@@ -278,15 +268,8 @@ function About() {
   return (
     <section id="ueber" className="py-16 sm:py-24 bg-white">
       <div className="max-w-5xl mx-auto px-4 grid md:grid-cols-2 gap-12 items-center">
-        <div className="rounded-2xl overflow-hidden bg-[#F4EDE2] aspect-[3/4] flex items-center justify-center order-last md:order-first">
-          <svg viewBox="0 0 300 400" className="w-full h-full opacity-10">
-            <defs>
-              <pattern id="dots" width="15" height="15" patternUnits="userSpaceOnUse">
-                <circle cx="7" cy="7" r="1.5" fill="#6B8E7F"/>
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#dots)" />
-          </svg>
+        <div className="rounded-2xl overflow-hidden aspect-[3/4] order-last md:order-first">
+          <img src="/portrait.jpg" alt="Karin Zollinger, Physiotherapeutin" className="w-full h-full object-cover object-top" />
         </div>
         <div>
           <SectionLabel>Über mich</SectionLabel>
