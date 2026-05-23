@@ -441,6 +441,19 @@ function Reviews() {
             </article>
           ))}
         </div>
+        <div className="mt-8 flex justify-center">
+          <a
+            href="https://www.google.ch/maps/place/Physio+Allmend+%2FPilates/@47.4738674,8.2950277,627m/data=!3m1!1e3!4m8!3m7!1s0x47906d5649bd7e93:0x144d3715b94d6c5b!8m2!3d47.4738674!4d8.2976026!9m1!1b1!16s%2Fg%2F11px8x9dwz?entry=ttu&g_ep=EgoyMDI2MDUyMC4wIKXMDSoASAFQAw%3D%3D#:~:text=%EE%95%A0-,Rezension,-schreiben"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 border border-[#6B8E7F] text-[#6B8E7F] hover:bg-[#6B8E7F] hover:text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+            </svg>
+            Bewertung schreiben
+          </a>
+        </div>
       </div>
     </section>
   )
