@@ -119,7 +119,7 @@ function Nav() {
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-[#E1D6C2]">
       <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-4">
-        <Wordmark size={36} />
+        <a href="#top" aria-label="Zur Startseite"><Wordmark size={36} /></a>
         <nav className="hidden md:flex items-center gap-5 ml-4 flex-1">
           {links.map(([href, label]) => (
             <a key={href} href={href} className="text-sm text-[#4A4138] hover:text-[#6B8E7F] transition-colors">{label}</a>
