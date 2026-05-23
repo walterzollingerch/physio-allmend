@@ -289,19 +289,48 @@ function About() {
         </div>
         <div>
           <SectionLabel>Über mich</SectionLabel>
-          <Heading className="mb-6">Eine Praxis,<br />eine Therapeutin.</Heading>
           <p className="text-[#4A4138] leading-relaxed mb-4">
-            Mein Name ist Karin Zollinger. Ich begleite Menschen zurück in ihre Bewegung — nach Verletzungen, Operationen, oder einfach nach zu vielen Stunden am Schreibtisch. Ich arbeite in einem ruhigen Raum, mit einer Person nach der anderen.
+            Mein Name ist Karin Zollinger. Ich begleite Menschen zurück in ihre Bewegung — nach Verletzungen, Operationen, oder einfach nach zu vielen Stunden am Schreibtisch. Ich arbeite in einem ruhigen Raum in persönlicher Atmosphäre.
           </p>
           <p className="text-[#4A4138] leading-relaxed mb-8">
-            Pilates kam später dazu, als logische Fortsetzung der Therapie. Was in der Praxis beginnt, soll im Alltag tragen. Auf der Matte und am Reformer üben wir genau das.
+            Pilates kam später dazu, als logische Fortsetzung der Therapie. Was in der Praxis beginnt, soll im Alltag tragen. Viele Menschen tun sich schwer dabei, selbständig in Eigendisziplin weiter zu trainieren. Pilates Einzel- oder Gruppenstunden können eine Unterstützung dabei sein, die Kraft und Beweglichkeit, welche man in der Therapie erworben hat, zu erhalten oder weiter auszubauen.
           </p>
-          <div className="border-t border-[#E1D6C2] pt-6">
-            <p className="text-xs font-semibold tracking-widest uppercase text-[#7A6E60] mb-3">Ausbildung & Mitgliedschaften</p>
+          <div className="border-t border-[#E1D6C2] pt-6 mb-6">
+            <p className="text-xs font-semibold tracking-widest uppercase text-[#7A6E60] mb-3">Ausbildungen</p>
             <ul className="space-y-1.5">
-              {['BSc Physiotherapie, ZHAW Winterthur', 'Manuelle Therapie nach Maitland', 'Polestar® Pilates Comprehensive', 'Mitglied Physioswiss'].map(c => (
-                <li key={c} className="text-sm text-[#4A4138] flex items-center gap-2">
-                  <span className="text-[#6B8E7F]">—</span> {c}
+              {[
+                'Manuelle Therapie nach Samt',
+                'Analytische Biomechanik und Behandlungskonzept nach Raymond Sohier',
+                'Mobilisation des Nervensystems NOI',
+                'Kinetic Control – Muscle Balance (LWS, Nacken, Schulter und Untere Extremität)',
+                'Manuelle Triggerpunkt Therapie IMTT®',
+                'Lymphologische Entstauungstherapie',
+                'Therapeutisches Yoga',
+                'Kinesiotap Kurs',
+                'Krafttraining Ü65',
+                'Polestar® Pilates',
+                'Spiraldynamik Basic Med',
+              ].map(c => (
+                <li key={c} className="text-sm text-[#4A4138] flex items-start gap-2">
+                  <span className="text-[#6B8E7F] mt-0.5 shrink-0">—</span> {c}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="border-t border-[#E1D6C2] pt-6">
+            <p className="text-xs font-semibold tracking-widest uppercase text-[#7A6E60] mb-3">Werdegang</p>
+            <ul className="space-y-2">
+              {[
+                ['1999–2003', 'Physiotherapie Ausbildung im Unispital Basel'],
+                ['2004–2007', 'Physiotherapeutin im Kantonsspital Aarau'],
+                ['2007–2009', 'Leitung des physiotherapeutischen Teams der Intensivstationen'],
+                ['2009–2010', 'Geburt meiner Zwillinge'],
+                ['2010–2014', 'Selbständige Physiotherapeutin in der Praxis Egli.Hug'],
+                ['2014', 'Eröffnung Praxis Physio Allmend'],
+              ].map(([year, desc]) => (
+                <li key={year} className="text-sm text-[#4A4138] flex items-start gap-3">
+                  <span className="text-[#6B8E7F] font-mono shrink-0 w-20">{year}</span>
+                  <span>{desc}</span>
                 </li>
               ))}
             </ul>
