@@ -34,14 +34,14 @@ export default function ForgotPasswordPage() {
   return (
     <div className="w-full max-w-md">
       <div className="text-center mb-8">
-        <PhysioLogo size={64} />
+        <a href="/"><PhysioLogo size={64} /></a>
         <h1
           className="mt-4 text-2xl font-light text-[#2A2622]"
           style={{ fontFamily: '"Fraunces", Georgia, serif' }}
         >
           Physio Allmend
         </h1>
-        <p className="text-[#7A6E60] text-sm mt-1">Patientenportal · Birmensdorf ZH</p>
+        <p className="text-[#7A6E60] text-sm mt-1">Patientenportal · Baden AG</p>
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-[#E1D6C2] p-6 sm:p-8">
