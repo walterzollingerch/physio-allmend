@@ -13,15 +13,16 @@ export async function POST(req: NextRequest) {
   })
 
   const html = `
-    <h2>Neue Kontaktanfrage – Physio Allmend</h2>
-    <table style="border-collapse:collapse;width:100%">
-      <tr><td style="padding:8px;font-weight:bold;width:120px">Name</td><td style="padding:8px">${name}</td></tr>
-      <tr><td style="padding:8px;font-weight:bold">E-Mail</td><td style="padding:8px"><a href="mailto:${email}">${email}</a></td></tr>
-      <tr><td style="padding:8px;font-weight:bold">Telefon</td><td style="padding:8px">${phone || '—'}</td></tr>
-      <tr><td style="padding:8px;font-weight:bold">Anliegen</td><td style="padding:8px">${topic}</td></tr>
-      <tr><td style="padding:8px;font-weight:bold">Nachricht</td><td style="padding:8px;white-space:pre-wrap">${message}</td></tr>
-      ${files?.length ? `<tr><td style="padding:8px;font-weight:bold">Anhänge</td><td style="padding:8px">${files.join(', ')}</td></tr>` : ''}
+    <h2 style="color:#2A2622;font-family:Georgia,serif">Neue Anfrage – Physio Allmend</h2>
+    <table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px">
+      <tr><td style="padding:8px 12px;font-weight:bold;color:#7A6E60;width:120px">Name</td><td style="padding:8px 12px">${name}</td></tr>
+      <tr style="background:#f9f6f1"><td style="padding:8px 12px;font-weight:bold;color:#7A6E60">E-Mail</td><td style="padding:8px 12px"><a href="mailto:${email}" style="color:#6B8E7F">${email}</a></td></tr>
+      <tr><td style="padding:8px 12px;font-weight:bold;color:#7A6E60">Telefon</td><td style="padding:8px 12px">${phone || '—'}</td></tr>
+      <tr style="background:#f9f6f1"><td style="padding:8px 12px;font-weight:bold;color:#7A6E60">Anliegen</td><td style="padding:8px 12px">${topic}</td></tr>
+      <tr><td style="padding:8px 12px;font-weight:bold;color:#7A6E60;vertical-align:top">Nachricht</td><td style="padding:8px 12px;white-space:pre-wrap">${message}</td></tr>
+      ${files?.length ? `<tr style="background:#f9f6f1"><td style="padding:8px 12px;font-weight:bold;color:#7A6E60">Anhänge</td><td style="padding:8px 12px">${files.join(', ')}</td></tr>` : ''}
     </table>
+    <p style="margin-top:16px;font-size:12px;color:#aaa">Gesendet über physio-allmend.vercel.app</p>
   `
 
   try {
