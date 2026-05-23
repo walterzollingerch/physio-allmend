@@ -227,7 +227,7 @@ function Hero() {
             Bewegung,<br />klar und persönlich.
           </h1>
           <p className="text-[#4A4138] leading-relaxed mb-8">
-            Eine kleine Praxis am Rand des Limmattals. Klassische Physiotherapie und Pilates im Einzeltraining — mit Zeit, Aufmerksamkeit und einem klaren Plan.
+            Eine kleine Praxis in der ruhigen Allmend in Baden. Klassische Physiotherapie und Pilates im Einzeltraining — mit Zeit, Aufmerksamkeit und einem klaren Plan.
           </p>
           <div className="flex flex-wrap gap-3 mb-8">
             <a href="#kontakt"
