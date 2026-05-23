@@ -521,12 +521,37 @@ function Contact() {
     if (!form.consent) e.consent = true
     return e
   }
-  const onSubmit = (e: React.FormEvent) => {
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState(false)
+
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const errs = validate()
     setErrors(errs)
     setTouched({ name: true, email: true, message: true, consent: true })
-    if (Object.keys(errs).length === 0) setSubmitted(true)
+    if (Object.keys(errs).length > 0) return
+    setSending(true)
+    setSendError(false)
+    try {
+      const res = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          topic: form.topic,
+          message: form.message,
+          files: files ? Array.from(files).map(f => f.name) : [],
+        }),
+      })
+      if (res.ok) setSubmitted(true)
+      else setSendError(true)
+    } catch {
+      setSendError(true)
+    } finally {
+      setSending(false)
+    }
   }
   const err = (k: string) => touched[k] && errors[k]
 
@@ -639,9 +664,14 @@ function Contact() {
               Ich bin einverstanden, dass meine Angaben zur Bearbeitung der Anfrage gespeichert werden.
             </span>
           </label>
-          <button type="submit"
-            className="w-full bg-[#6B8E7F] text-white py-3 rounded-xl font-medium hover:bg-[#4F7163] transition-colors">
-            Anfrage senden →
+          {sendError && (
+            <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">
+              Fehler beim Senden. Bitte versuchen Sie es erneut oder schreiben Sie direkt an zollinger.baden@gmail.com.
+            </p>
+          )}
+          <button type="submit" disabled={sending}
+            className="w-full bg-[#6B8E7F] text-white py-3 rounded-xl font-medium hover:bg-[#4F7163] transition-colors disabled:opacity-60">
+            {sending ? 'Wird gesendet…' : 'Anfrage senden →'}
           </button>
         </form>
       </div>
