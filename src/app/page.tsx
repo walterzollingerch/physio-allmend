@@ -514,6 +514,7 @@ function Location() {
 
 function Contact() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', topic: 'Erstgespräch Physiotherapie', message: '', consent: false })
+  const [files, setFiles] = useState<FileList | null>(null)
   const [errors, setErrors] = useState<Record<string, boolean>>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
   const [submitted, setSubmitted] = useState(false)
@@ -552,7 +553,7 @@ function Contact() {
           <Heading className="mb-3">Danke — Ihre Nachricht ist angekommen.</Heading>
           <p className="text-[#7A6E60] mb-6">Ich melde mich innerhalb eines Werktags. Bei dringenden Anliegen erreichen Sie mich telefonisch.</p>
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm">
-            <a href="tel:+41565552314" className="text-[#4F7163] hover:underline">056 555 23 14</a>
+            <a href="tel:+41763689144" className="text-[#4F7163] hover:underline">076 368 91 44</a>
             <span className="text-[#C7D6CD]">·</span>
             <a href="mailto:zollinger.baden@gmail.com" className="text-[#4F7163] hover:underline">zollinger.baden@gmail.com</a>
           </div>
@@ -572,11 +573,11 @@ function Contact() {
           </p>
           <div className="space-y-3">
             <div className="flex items-center gap-3 text-sm">
-              <span className="w-8 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Tel</span>
-              <a href="tel:+41565552314" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">056 555 23 14</a>
+              <span className="w-12 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Mobile</span>
+              <a href="tel:+41763689144" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">076 368 91 44</a>
             </div>
             <div className="flex items-center gap-3 text-sm">
-              <span className="w-8 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Mail</span>
+              <span className="w-12 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Mail</span>
               <a href="mailto:zollinger.baden@gmail.com" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">zollinger.baden@gmail.com</a>
             </div>
           </div>
@@ -619,6 +620,22 @@ function Contact() {
               placeholder="Worum geht es? Seit wann? Was haben Sie schon probiert?" required
               className={fieldCls(err('message'))} />
           </FieldWrap>
+          <div>
+            <span className="block text-xs font-medium text-[#7A6E60] mb-1">Anhänge (optional)</span>
+            <label className="flex flex-col items-center justify-center w-full border border-dashed border-[#C7D6CD] rounded-lg px-4 py-5 cursor-pointer bg-white hover:bg-[#FBF7F1] transition-colors text-center">
+              <svg className="w-6 h-6 text-[#6B8E7F] mb-2" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 12V4m0 0L8.5 7.5M12 4l3.5 3.5" />
+              </svg>
+              <span className="text-sm text-[#4A4138]">
+                {files && files.length > 0
+                  ? Array.from(files).map(f => f.name).join(', ')
+                  : 'Verordnung, Berichte oder Bilder hochladen'}
+              </span>
+              <span className="text-xs text-[#7A6E60] mt-1">PDF, JPG, PNG – max. 10 MB pro Datei</span>
+              <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+                onChange={e => setFiles(e.target.files)} />
+            </label>
+          </div>
           <label className={`flex items-start gap-2.5 cursor-pointer ${err('consent') ? 'text-red-600' : 'text-[#7A6E60]'}`}>
             <input type="checkbox" checked={form.consent} onChange={set('consent')}
               className="mt-0.5 accent-[#6B8E7F]" />
