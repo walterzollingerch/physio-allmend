@@ -11,13 +11,13 @@ const SERVICES = [
   {
     tag: '01',
     name: 'Allgemeine Physiotherapie',
-    body: 'Befund, Behandlung, Trainingsplan. Bei Rückenschmerzen, nach Operationen, bei Sportverletzungen oder chronischen Beschwerden. Manuelle Therapie, aktive Übungen und ehrliche Gespräche darüber, was hilft und was nicht.',
+    body: 'Nach einer genauen Befundaufnahme mit anschließender Problemanalyse legen wir gemeinsam die Ziele für Ihre Behandlung fest. Mit einem individuell zusammengestellten Trainingsplan, Massagen und manueller Therapie versuchen wir gemeinsam an Ihrem Anliegen zu arbeiten. Bei Rückenschmerzen, nach Operationen, bei Sportverletzungen oder chronischen Beschwerden versuche ich, Sie bestmöglich zu unterstützen.',
     bullets: ['Befund & Diagnostik', 'Manuelle Therapie', 'Trainingstherapie', 'Nachsorge & Prävention'],
   },
   {
     tag: '02',
     name: 'Pilates Einzeltraining',
-    body: 'Pilates eins zu eins, am Reformer und auf der Matte. Für Wiedereinsteigerinnen, für Sportler, für alle, die mit ihrem Körper lieber genau als laut arbeiten. Jede Stunde wird auf den Tag und die Tagesform abgestimmt.',
+    body: 'Ich biete Pilates eins zu eins auf der Matte an für alle, die mit ihrem Körper gerne achtsam und genau arbeiten. Jede Stunde wird auf den Tag und die Tagesform abgestimmt. Individuelle Einschränkungen und Trainingsziele werden berücksichtigt.',
     bullets: ['Reformer & Matte', 'Individueller Plan', '60 Minuten', 'Auf Wunsch mit Therapie kombiniert'],
   },
 ]
