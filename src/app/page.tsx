@@ -240,7 +240,7 @@ function Hero() {
             </a>
           </div>
           <ul className="space-y-1.5">
-            {['Direktzugang ohne Verordnung', 'Anerkannt von allen Krankenkassen', '60-Minuten-Sitzungen'].map(m => (
+            {['Direktzugang ohne Verordnung', 'Anerkannt von allen Krankenkassen', 'Sitzungen 30–45 Minuten'].map(m => (
               <li key={m} className="flex items-center gap-2 text-sm text-[#7A6E60]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#6B8E7F] shrink-0" />
                 {m}
@@ -343,14 +343,7 @@ function Services() {
                 style={{ fontFamily: '"Fraunces", Georgia, serif' }}>
                 {s.name}
               </h3>
-              <p className="text-sm text-[#4A4138] leading-relaxed mb-5">{s.body}</p>
-              <ul className="space-y-1.5">
-                {s.bullets.map(b => (
-                  <li key={b} className="text-sm text-[#7A6E60] flex items-center gap-2">
-                    <span className="text-[#6B8E7F] font-medium">—</span> {b}
-                  </li>
-                ))}
-              </ul>
+              <p className="text-sm text-[#4A4138] leading-relaxed">{s.body}</p>
             </div>
           ))}
         </div>
@@ -385,7 +378,7 @@ function Pricing() {
           <p>Die Physiotherapie wird nach ärztlicher Verordnung über die Grundversicherung bezahlt.</p>
           <p>Für die Massage habe ich eine Anerkennung beim EMR. Bitte fragen Sie bei Ihrer Krankenkasse nach, wie sich Ihre Kasse anteilsmäßig beteiligt.</p>
           <p>Auch an den Pilatesstunden beteiligen sich einige Krankenkassen mit der Zusatzversicherung.</p>
-          <p className="text-[#7A6E60]">Absagen bitte mindestens 24 Stunden im Voraus, sonst stelle ich den vollen Betrag in Rechnung.</p>
+          <p className="text-[#7A6E60]">Absagen bitte mindestens 24 Stunden im Voraus, ansonsten kann der volle Betrag verrechnet werden.</p>
         </div>
       </div>
     </section>
@@ -509,7 +502,7 @@ function Location() {
 // ─── Contact ────────────────────────────────────────────────────────────────
 
 function Contact() {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', topic: 'Erstgespräch Physiotherapie', message: '', consent: false })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', topic: 'Physiotherapie', message: '', consent: false })
   const [files, setFiles] = useState<FileList | null>(null)
   const [errors, setErrors] = useState<Record<string, boolean>>({})
   const [touched, setTouched] = useState<Record<string, boolean>>({})
@@ -569,16 +562,20 @@ function Contact() {
           </p>
           <div className="space-y-3">
             <div className="flex items-center gap-3 text-sm">
-              <span className="w-12 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Mobile</span>
+              <span className="w-16 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Mobile</span>
               <a href="tel:+41763689144" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">076 368 91 44</a>
             </div>
             <div className="flex items-center gap-3 text-sm">
-              <span className="w-12 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Mail</span>
+              <span className="w-16 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Festnetz</span>
+              <a href="tel:+41565552314" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">056 555 23 14</a>
+            </div>
+            <div className="flex items-center gap-3 text-sm">
+              <span className="w-16 text-xs font-semibold text-[#7A6E60] uppercase tracking-wide">Mail</span>
               <a href="mailto:zollinger.baden@gmail.com" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">zollinger.baden@gmail.com</a>
             </div>
           </div>
           <div className="mt-8">
-            <img src="/wartestuhl.jpg" alt="Wartebereich Physio Allmend" className="rounded-2xl w-full object-cover max-h-64" />
+            <img src="/wartestuhl.jpg" alt="Wartebereich Physio Allmend" className="rounded-2xl w-full object-contain" />
           </div>
           <div className="mt-8 pt-8 border-t border-[#E1D6C2]">
             <p className="text-sm text-[#7A6E60] mb-3">Bereits Patient? Termin direkt im Portal buchen:</p>
@@ -608,7 +605,7 @@ function Contact() {
             </FieldWrap>
             <FieldWrap label="Anliegen">
               <select value={form.topic} onChange={set('topic')} className={fieldCls(false)}>
-                {['Erstgespräch Physiotherapie', 'Pilates Einzeltraining', 'Frage zu Preisen / Versicherung', 'Anderes'].map(o => (
+                {['Physiotherapie', 'Pilates Einzeltraining', 'Frage zu Preisen / Versicherung', 'Anderes'].map(o => (
                   <option key={o}>{o}</option>
                 ))}
               </select>
