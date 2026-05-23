@@ -23,10 +23,11 @@ const SERVICES = [
 ]
 
 const PRICING = [
-  { name: 'Physiotherapie', duration: '30 Min', price: 'CHF 95.50', note: 'Tarif nach Krankenkassenvertrag' },
-  { name: 'Physiotherapie lang', duration: '45 Min', price: 'CHF 140.—', note: 'Erstkonsultation oder komplexe Befunde' },
-  { name: 'Pilates Einzeltraining', duration: '60 Min', price: 'CHF 130.—', note: 'Reformer oder Matte' },
-  { name: '10er-Abo Pilates', duration: '10 × 60 Min', price: "CHF 1'200.—", note: '12 Monate gültig' },
+  { name: 'Physiotherapie', duration: '25 Min', price: 'CHF 50.—' },
+  { name: 'Massage', duration: '45 Min', price: 'CHF 90.—' },
+  { name: 'Pilates Einzeltraining', duration: '45 Min', price: 'CHF 90.—' },
+  { name: 'Pilates 2er-Gruppe', duration: '45 Min', price: 'CHF 45.—' },
+  { name: 'Pilates 6er–9er-Gruppe', duration: '60 Min', price: 'CHF 28.—' },
 ]
 
 const REVIEWS = [
@@ -381,16 +382,10 @@ function Pricing() {
   return (
     <section id="preise" className="py-16 sm:py-24 bg-white">
       <div className="max-w-5xl mx-auto px-4">
-        <div className="mb-10 flex flex-col sm:flex-row sm:items-end gap-6 justify-between">
-          <div>
-            <SectionLabel>Preise</SectionLabel>
-            <Heading>Klar und ohne Überraschungen.</Heading>
-          </div>
-          <p className="text-sm text-[#7A6E60] max-w-xs">
-            Physiotherapie wird über die Grundversicherung abgerechnet. Pilates ist Selbstzahlerleistung — viele Zusatzversicherungen beteiligen sich anteilig.
-          </p>
+        <div className="mb-10">
+          <SectionLabel>Preise</SectionLabel>
         </div>
-        <div className="space-y-0 border border-[#E1D6C2] rounded-2xl overflow-hidden">
+        <div className="space-y-0 border border-[#E1D6C2] rounded-2xl overflow-hidden mb-8">
           {PRICING.map((it, i) => (
             <div key={i} className="flex items-center gap-4 px-6 py-4 border-b border-[#F4EDE2] last:border-0 bg-white hover:bg-[#FBF7F1] transition-colors">
               <div className="flex-1">
@@ -399,14 +394,16 @@ function Pricing() {
               </div>
               <div className="text-right shrink-0">
                 <div className="font-semibold text-[#2A2622]">{it.price}</div>
-                <div className="text-xs text-[#7A6E60]">{it.note}</div>
               </div>
             </div>
           ))}
         </div>
-        <p className="text-xs text-[#7A6E60] mt-4">
-          Absagen bitte mindestens 24 Stunden im Voraus, sonst stelle ich den vollen Betrag in Rechnung.
-        </p>
+        <div className="space-y-2 text-sm text-[#4A4138]">
+          <p>Die Physiotherapie wird nach ärztlicher Verordnung über die Grundversicherung bezahlt.</p>
+          <p>Für die Massage habe ich eine Anerkennung beim EMR. Bitte fragen Sie bei Ihrer Krankenkasse nach, wie sich Ihre Kasse anteilsmäßig beteiligt.</p>
+          <p>Auch an den Pilatesstunden beteiligen sich einige Krankenkassen mit der Zusatzversicherung.</p>
+          <p className="text-[#7A6E60]">Absagen bitte mindestens 24 Stunden im Voraus, sonst stelle ich den vollen Betrag in Rechnung.</p>
+        </div>
       </div>
     </section>
   )
