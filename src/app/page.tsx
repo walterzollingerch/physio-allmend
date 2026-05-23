@@ -594,6 +594,9 @@ function Contact() {
               <a href="mailto:zollinger.baden@gmail.com" className="text-[#2A2622] hover:text-[#6B8E7F] transition-colors">zollinger.baden@gmail.com</a>
             </div>
           </div>
+          <div className="mt-8">
+            <img src="/wartestuhl.jpg" alt="Wartebereich Physio Allmend" className="rounded-2xl w-full object-cover max-h-64" />
+          </div>
           <div className="mt-8 pt-8 border-t border-[#E1D6C2]">
             <p className="text-sm text-[#7A6E60] mb-3">Bereits Patient? Termin direkt im Portal buchen:</p>
             <Link href="/auth/login"
