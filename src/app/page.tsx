@@ -533,28 +533,15 @@ function Contact() {
     setSending(true)
     setSendError(false)
     try {
-      // Dateien als Base64 einlesen
-      const attachments = files
-        ? await Promise.all(Array.from(files).map(f => new Promise<{ name: string; data: string; type: string }>((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve({ name: f.name, data: (reader.result as string).split(',')[1], type: f.type })
-            reader.onerror = reject
-            reader.readAsDataURL(f)
-          })))
-        : []
+      const fd = new FormData()
+      fd.append('name', form.name)
+      fd.append('email', form.email)
+      fd.append('phone', form.phone)
+      fd.append('topic', form.topic)
+      fd.append('message', form.message)
+      if (files) Array.from(files).forEach(f => fd.append('files', f))
 
-      const res = await fetch('/api/contact', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name,
-          email: form.email,
-          phone: form.phone,
-          topic: form.topic,
-          message: form.message,
-          attachments,
-        }),
-      })
+      const res = await fetch('/api/contact', { method: 'POST', body: fd })
       if (res.ok) setSubmitted(true)
       else setSendError(true)
     } catch {

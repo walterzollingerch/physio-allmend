@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 
 export async function POST(req: NextRequest) {
-  const { name, email, phone, topic, message, attachments } = await req.json()
+  const fd = await req.formData()
+
+  const name    = fd.get('name') as string
+  const email   = fd.get('email') as string
+  const phone   = fd.get('phone') as string
+  const topic   = fd.get('topic') as string
+  const message = fd.get('message') as string
+  const fileEntries = fd.getAll('files') as File[]
 
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -24,11 +31,15 @@ export async function POST(req: NextRequest) {
     <p style="margin-top:16px;font-size:12px;color:#aaa">Gesendet über physio-allmend.vercel.app</p>
   `
 
-  const mailAttachments = attachments?.map((a: { name: string; data: string; type: string }) => ({
-    filename: a.name,
-    content: Buffer.from(a.data, 'base64'),
-    contentType: a.type,
-  })) ?? []
+  const attachments = await Promise.all(
+    fileEntries
+      .filter(f => f.size > 0)
+      .map(async f => ({
+        filename: f.name,
+        content: Buffer.from(await f.arrayBuffer()),
+        contentType: f.type,
+      }))
+  )
 
   try {
     await transporter.sendMail({
@@ -37,7 +48,7 @@ export async function POST(req: NextRequest) {
       replyTo: email,
       subject: `Anfrage von ${name} – ${topic}`,
       html,
-      attachments: mailAttachments,
+      attachments,
     })
     return NextResponse.json({ ok: true })
   } catch (err) {
