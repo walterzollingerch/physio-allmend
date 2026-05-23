@@ -474,7 +474,7 @@ function Location() {
             ))}
           </div>
           <p className="text-sm text-[#7A6E60]">
-            Gut erreichbar mit öffentlichem Verkehr ab Bahnhof Baden. Parkplätze direkt vor der Praxis.
+            Gut erreichbar mit öffentlichem Verkehr ab Bahnhof Baden mit der Buslinie 5 in Richtung Baldegg bis Bushaltestelle Birkenweg. Gratis Parkplätze direkt vor der Praxis.
           </p>
         </div>
         <a href={MAPS_URL} target="_blank" rel="noopener noreferrer"
