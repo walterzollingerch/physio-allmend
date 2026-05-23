@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 
 export async function POST(req: NextRequest) {
-  const { name, email, phone, topic, message, files } = await req.json()
+  const { name, email, phone, topic, message, attachments } = await req.json()
 
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -20,10 +20,15 @@ export async function POST(req: NextRequest) {
       <tr><td style="padding:8px 12px;font-weight:bold;color:#7A6E60">Telefon</td><td style="padding:8px 12px">${phone || '—'}</td></tr>
       <tr style="background:#f9f6f1"><td style="padding:8px 12px;font-weight:bold;color:#7A6E60">Anliegen</td><td style="padding:8px 12px">${topic}</td></tr>
       <tr><td style="padding:8px 12px;font-weight:bold;color:#7A6E60;vertical-align:top">Nachricht</td><td style="padding:8px 12px;white-space:pre-wrap">${message}</td></tr>
-      ${files?.length ? `<tr style="background:#f9f6f1"><td style="padding:8px 12px;font-weight:bold;color:#7A6E60">Anhänge</td><td style="padding:8px 12px">${files.join(', ')}</td></tr>` : ''}
     </table>
     <p style="margin-top:16px;font-size:12px;color:#aaa">Gesendet über physio-allmend.vercel.app</p>
   `
+
+  const mailAttachments = attachments?.map((a: { name: string; data: string; type: string }) => ({
+    filename: a.name,
+    content: Buffer.from(a.data, 'base64'),
+    contentType: a.type,
+  })) ?? []
 
   try {
     await transporter.sendMail({
@@ -32,6 +37,7 @@ export async function POST(req: NextRequest) {
       replyTo: email,
       subject: `Anfrage von ${name} – ${topic}`,
       html,
+      attachments: mailAttachments,
     })
     return NextResponse.json({ ok: true })
   } catch (err) {
