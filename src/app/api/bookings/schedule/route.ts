@@ -60,7 +60,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Buchung aktualisieren: Datum, Zeit, Behandlung, Status → confirmed
-  const { error: uErr } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: uErr } = await (supabase as any)
     .from('bookings')
     .update({
       requested_date:    date,
