@@ -14,6 +14,12 @@ export type Inquiry = {
   status: 'new' | 'read' | 'done'
 }
 
+export type TreatmentType = {
+  id: string
+  name: string
+  duration_min: number
+}
+
 export default async function AnfragenPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -22,13 +28,16 @@ export default async function AnfragenPage() {
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (!profile || !['admin', 'physio'].includes(profile.role)) redirect('/')
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rawInquiries } = await (supabase as any)
-    .from('contact_inquiries')
-    .select('*')
-    .order('created_at', { ascending: false })
+  const [inquiriesRes, treatmentsRes] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from('contact_inquiries').select('*').order('created_at', { ascending: false }),
+    supabase.from('treatment_types').select('id, name, duration_min').order('name'),
+  ])
 
-  const inquiries = (rawInquiries ?? []) as Inquiry[]
-
-  return <AnfragenClient inquiries={inquiries} />
+  return (
+    <AnfragenClient
+      inquiries={(inquiriesRes.data ?? []) as Inquiry[]}
+      treatmentTypes={(treatmentsRes.data ?? []) as TreatmentType[]}
+    />
+  )
 }

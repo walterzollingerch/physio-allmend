@@ -61,6 +61,41 @@ export async function createCalendarEvent(input: CalendarEventInput): Promise<st
   return response.data.id ?? ''
 }
 
+export interface BusySlot {
+  start: string  // HH:MM
+  end: string    // HH:MM
+  title: string
+}
+
+export async function getCalendarBusy(date: string): Promise<BusySlot[]> {
+  const auth = getOAuth2Client()
+  const calendar = google.calendar({ version: 'v3', auth })
+
+  const timeMin = new Date(`${date}T00:00:00+02:00`).toISOString()
+  const timeMax = new Date(`${date}T23:59:59+02:00`).toISOString()
+
+  const response = await calendar.events.list({
+    calendarId: process.env.GOOGLE_CALENDAR_ID ?? 'zollinger.baden@gmail.com',
+    timeMin,
+    timeMax,
+    singleEvents: true,
+    orderBy: 'startTime',
+  })
+
+  const events = response.data.items ?? []
+  return events
+    .filter(e => e.start?.dateTime && e.end?.dateTime)
+    .map(e => ({
+      start: new Date(e.start!.dateTime!).toLocaleTimeString('de-CH', {
+        hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich',
+      }),
+      end: new Date(e.end!.dateTime!).toLocaleTimeString('de-CH', {
+        hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Zurich',
+      }),
+      title: e.summary ?? 'Belegt',
+    }))
+}
+
 export async function deleteCalendarEvent(eventId: string): Promise<void> {
   const auth = getOAuth2Client()
   const calendar = google.calendar({ version: 'v3', auth })
