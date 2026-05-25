@@ -30,7 +30,8 @@ export async function updateSession(request: NextRequest) {
 
   const url = request.nextUrl.clone()
   const isAuthPage    = url.pathname.startsWith('/auth')
-  const isPublicPage  = url.pathname === '/' || isAuthPage
+  const isApiRoute    = url.pathname.startsWith('/api/')
+  const isPublicPage  = url.pathname === '/' || isAuthPage || isApiRoute
   const isAdminPage   = url.pathname.startsWith('/admin')
 
   // Nicht eingeloggt auf geschützter Seite → Login
