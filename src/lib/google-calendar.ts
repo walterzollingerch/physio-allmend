@@ -106,3 +106,29 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
     sendUpdates: 'all',
   })
 }
+
+/**
+ * Returns the set of Google Calendar event IDs that still exist
+ * between fromDate and toDate (inclusive, YYYY-MM-DD).
+ */
+export async function getExistingEventIds(fromDate: string, toDate: string): Promise<Set<string>> {
+  const auth = getOAuth2Client()
+  const calendar = google.calendar({ version: 'v3', auth })
+
+  const timeMin = new Date(`${fromDate}T00:00:00`).toISOString()
+  const timeMax = new Date(`${toDate}T23:59:59`).toISOString()
+
+  const response = await calendar.events.list({
+    calendarId: process.env.GOOGLE_CALENDAR_ID ?? 'zollinger.baden@gmail.com',
+    timeMin,
+    timeMax,
+    singleEvents: true,
+    maxResults: 2500,
+  })
+
+  const ids = new Set<string>()
+  for (const event of response.data.items ?? []) {
+    if (event.id && event.status !== 'cancelled') ids.add(event.id)
+  }
+  return ids
+}

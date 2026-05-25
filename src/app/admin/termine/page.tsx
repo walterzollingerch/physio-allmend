@@ -10,6 +10,8 @@ export type TreatmentType = {
 
 export type BookingWithRelations = {
   id: string
+  patient_id: string
+  confirmed_by: string | null
   requested_date: string
   requested_time: string
   status: 'pending' | 'confirmed' | 'cancelled'
@@ -36,10 +38,33 @@ export default async function AdminTerminePage() {
     supabase.from('treatment_types').select('id, name, duration_min').order('name'),
   ])
 
+  const bookings = (bookingsRes.data ?? []) as BookingWithRelations[]
+
+  // Welche bestätigten Termine existieren noch im Google Kalender?
+  let calendarDeletedIds: string[] = []
+  if (process.env.GOOGLE_REFRESH_TOKEN) {
+    const confirmedWithEvent = bookings.filter(
+      b => b.status === 'confirmed' && b.google_event_id
+    )
+    if (confirmedWithEvent.length > 0) {
+      try {
+        const { getExistingEventIds } = await import('@/lib/google-calendar')
+        const dates = confirmedWithEvent.map(b => b.requested_date).sort()
+        const existingIds = await getExistingEventIds(dates[0], dates[dates.length - 1])
+        calendarDeletedIds = confirmedWithEvent
+          .filter(b => !existingIds.has(b.google_event_id!))
+          .map(b => b.id)
+      } catch (err) {
+        console.error('Calendar-Sync Fehler:', err)
+      }
+    }
+  }
+
   return (
     <TermineClient
-      bookings={(bookingsRes.data ?? []) as BookingWithRelations[]}
+      bookings={bookings}
       treatmentTypes={(treatmentsRes.data ?? []) as TreatmentType[]}
+      calendarDeletedIds={calendarDeletedIds}
     />
   )
 }

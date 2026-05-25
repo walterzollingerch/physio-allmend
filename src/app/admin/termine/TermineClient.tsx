@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   CalendarDays, CheckCircle, XCircle, Clock, ChevronLeft,
-  Calendar, Loader2, X, Inbox, Phone, Mail,
+  Calendar, Loader2, X, Inbox, Phone, Mail, AlertTriangle,
+  UserX, CalendarOff, RefreshCw,
 } from 'lucide-react'
 import type { BookingWithRelations, TreatmentType } from './page'
 
@@ -14,9 +15,12 @@ const STATUS_CONFIG = {
   cancelled: { label: 'Abgesagt',   color: 'bg-red-100 text-red-600' },
 }
 
-// ── Hilfsfunktionen für Anfragen-Erkennung ────────────────────────────────
+// ── Hilfsfunktionen ────────────────────────────────────────────────────────
 const isInquiry = (b: BookingWithRelations) =>
   b.requested_time.startsWith('00:00') && (b.notes?.startsWith('[ANFRAGE via Website]') ?? false)
+
+const isPatientCancelled = (b: BookingWithRelations) =>
+  b.status === 'cancelled' && b.confirmed_by === b.patient_id
 
 const parseInquiryNotes = (notes: string | null) => {
   if (!notes) return { topic: '', message: '' }
@@ -50,24 +54,39 @@ function isSlotBusy(slot: string, durationMin: number, busy: BusySlot[]) {
 }
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
+const isUpcoming = (b: BookingWithRelations) => new Date(b.requested_date) >= new Date(todayStr())
 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function TermineClient({
   bookings: initial,
   treatmentTypes,
+  calendarDeletedIds: initialCalendarDeletedIds,
 }: {
   bookings: BookingWithRelations[]
   treatmentTypes: TreatmentType[]
+  calendarDeletedIds: string[]
 }) {
   const router = useRouter()
   const [bookings, setBookings] = useState(initial)
   const [loadingId, setLoadingId] = useState<string | null>(null)
+  const [calendarDeletedIds, setCalendarDeletedIds] = useState(new Set(initialCalendarDeletedIds))
 
-  // Anfragen (ohne Termin) vs normale Buchungen
-  const inquiries  = bookings.filter(b => b.status === 'pending' && isInquiry(b))
-  const pending    = bookings.filter(b => b.status === 'pending' && !isInquiry(b))
-  const confirmed  = bookings.filter(b => b.status === 'confirmed' && new Date(b.requested_date) >= new Date())
-  const past       = bookings.filter(b => b.status !== 'pending' && new Date(b.requested_date) < new Date() && !isInquiry(b))
+  // Abschnitte
+  const inquiries         = bookings.filter(b => b.status === 'pending' && isInquiry(b))
+  const pending           = bookings.filter(b => b.status === 'pending' && !isInquiry(b))
+  const patientCancelled  = bookings.filter(b => isPatientCancelled(b) && isUpcoming(b))
+  const calendarDeleted   = bookings.filter(b => calendarDeletedIds.has(b.id))
+  const confirmed         = bookings.filter(b =>
+    b.status === 'confirmed' && isUpcoming(b) && !calendarDeletedIds.has(b.id)
+  )
+  const past = bookings.filter(b =>
+    !isInquiry(b) &&
+    !isUpcoming(b) &&
+    b.status !== 'pending' &&
+    !isPatientCancelled(b)
+  )
+
+  const attentionCount = patientCancelled.length + calendarDeleted.length
 
   const handleAction = async (booking_id: string, action: 'confirm' | 'cancel') => {
     setLoadingId(booking_id)
@@ -82,9 +101,23 @@ export default function TermineClient({
           ? { ...b, status: action === 'confirm' ? 'confirmed' : 'cancelled' }
           : b
       ))
+      if (action === 'cancel') {
+        setCalendarDeletedIds(prev => { const next = new Set(prev); next.delete(booking_id); return next })
+      }
       router.refresh()
     }
     setLoadingId(null)
+  }
+
+  // Kalender-Event neu anlegen für "Im Kalender gelöscht"-Buchungen
+  const handleReschedule = (booking_id: string) => {
+    // Buchung aus dem "im Kalender gelöscht"-Set entfernen und als InquiryCard (Planer) öffnen
+    setCalendarDeletedIds(prev => { const next = new Set(prev); next.delete(booking_id); return next })
+    setBookings(prev => prev.map(b =>
+      b.id === booking_id
+        ? { ...b, google_event_id: null, requested_time: '00:00:00', notes: '[ANFRAGE via Website]\nAnliegen: Termin neu planen\n\n' + (b.notes ?? '') }
+        : b
+    ))
   }
 
   const handleScheduled = (booking_id: string, date: string, time: string, treatment_type_id: string) => {
@@ -120,6 +153,40 @@ export default function TermineClient({
       </header>
 
       <main className="max-w-4xl mx-auto p-4 sm:p-8 space-y-8">
+
+        {/* ── Aktionsbedarf (Patienten-Absagen + Kalender-Löschungen) ── */}
+        {attentionCount > 0 && (
+          <section>
+            <h2 className="text-sm font-semibold text-[#4A4138] uppercase tracking-wide mb-3 flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center">
+                {attentionCount}
+              </span>
+              <AlertTriangle size={14} className="text-red-500" />
+              Aktionsbedarf
+            </h2>
+            <div className="space-y-3">
+              {patientCancelled.map(b => (
+                <BookingCard
+                  key={b.id}
+                  booking={b}
+                  loadingId={loadingId}
+                  onAction={handleAction}
+                  variant="patient-cancelled"
+                />
+              ))}
+              {calendarDeleted.map(b => (
+                <BookingCard
+                  key={b.id}
+                  booking={b}
+                  loadingId={loadingId}
+                  onAction={handleAction}
+                  onReschedule={() => handleReschedule(b.id)}
+                  variant="calendar-deleted"
+                />
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* ── Website-Anfragen (ohne Termin) ── */}
         {inquiries.length > 0 && (
@@ -203,6 +270,143 @@ export default function TermineClient({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Standard-Buchungskarte
+// ═══════════════════════════════════════════════════════════════════════════
+function BookingCard({
+  booking, loadingId, onAction, onReschedule, showActions = false, variant,
+}: {
+  booking: BookingWithRelations
+  loadingId: string | null
+  onAction: (id: string, action: 'confirm' | 'cancel') => void
+  onReschedule?: () => void
+  showActions?: boolean
+  variant?: 'patient-cancelled' | 'calendar-deleted'
+}) {
+  const cfg = STATUS_CONFIG[booking.status]
+  const isLoading = loadingId === booking.id
+  const dateStr = new Date(booking.requested_date + 'T12:00').toLocaleDateString('de-CH', {
+    weekday: 'short', day: 'numeric', month: 'long', year: 'numeric',
+  })
+
+  const borderClass =
+    variant === 'patient-cancelled' ? 'border-orange-200 bg-orange-50/30' :
+    variant === 'calendar-deleted'  ? 'border-yellow-300 bg-yellow-50/30' :
+    'border-[#E1D6C2]'
+
+  return (
+    <div className={`bg-white rounded-xl border ${borderClass} p-4`}>
+      <div className="flex items-start gap-4">
+        <div className="w-10 h-10 rounded-xl bg-[#C7D6CD]/40 flex items-center justify-center shrink-0">
+          {variant === 'patient-cancelled' ? (
+            <UserX size={18} className="text-orange-500" />
+          ) : variant === 'calendar-deleted' ? (
+            <CalendarOff size={18} className="text-yellow-600" />
+          ) : (
+            <CalendarDays size={18} className="text-[#6B8E7F]" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <p className="font-medium text-sm text-[#2A2622]">{booking.profiles.full_name}</p>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.color}`}>{cfg.label}</span>
+            {variant === 'patient-cancelled' && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-semibold flex items-center gap-1">
+                <UserX size={11} /> Vom Patienten abgesagt
+              </span>
+            )}
+            {variant === 'calendar-deleted' && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-semibold flex items-center gap-1">
+                <CalendarOff size={11} /> Im Kalender gelöscht
+              </span>
+            )}
+            {booking.google_event_id && !variant && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">Im Kalender</span>
+            )}
+          </div>
+          <p className="text-xs text-[#4A4138] font-medium">
+            {booking.treatment_types.name} · {booking.treatment_types.duration_min} Min.
+          </p>
+          {!isInquiry(booking) && (
+            <p className="text-xs text-[#7A6E60]">
+              {dateStr} · {booking.requested_time.slice(0, 5)} Uhr
+            </p>
+          )}
+          <p className="text-xs text-[#7A6E60]">
+            {booking.profiles.email}{booking.profiles.phone ? ` · ${booking.profiles.phone}` : ''}
+          </p>
+          {booking.notes && !isInquiry(booking) && (
+            <p className="text-xs text-[#7A6E60] mt-1 italic">&ldquo;{booking.notes}&rdquo;</p>
+          )}
+
+          {variant === 'calendar-deleted' && (
+            <p className="text-xs text-yellow-700 mt-1.5 font-medium">
+              Dieser Termin wurde direkt im Google Kalender gelöscht. Bitte Patienten kontaktieren oder Termin neu planen.
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 shrink-0">
+          {/* Kalender-Gelöscht: neu planen oder als abgesagt markieren */}
+          {variant === 'calendar-deleted' && (
+            <>
+              {onReschedule && (
+                <button
+                  onClick={onReschedule}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-[#4F7163] text-white rounded-lg text-xs font-medium hover:bg-[#3d5a4e] transition-colors"
+                >
+                  <RefreshCw size={13} /> Neu planen
+                </button>
+              )}
+              <button
+                onClick={() => onAction(booking.id, 'cancel')}
+                disabled={isLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-[#F4EDE2] text-[#4A4138] rounded-lg text-xs font-medium hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50"
+              >
+                <XCircle size={13} /> Als abgesagt markieren
+              </button>
+            </>
+          )}
+
+          {/* Patient hat abgesagt – nur Info, kein erneutes Bestätigen nötig */}
+          {variant === 'patient-cancelled' && (
+            <span className="text-xs text-orange-600 font-medium">Kein Handlungsbedarf</span>
+          )}
+
+          {/* Normal pending actions */}
+          {showActions && !variant && booking.status === 'pending' && (
+            <>
+              <button
+                onClick={() => onAction(booking.id, 'confirm')}
+                disabled={isLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-[#6B8E7F] text-white rounded-lg text-xs font-medium hover:bg-[#4F7163] transition-colors disabled:opacity-50"
+              >
+                <CheckCircle size={13} /> Bestätigen
+              </button>
+              <button
+                onClick={() => onAction(booking.id, 'cancel')}
+                disabled={isLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-[#F4EDE2] text-[#4A4138] rounded-lg text-xs font-medium hover:bg-[#EDE3D2] transition-colors disabled:opacity-50"
+              >
+                <XCircle size={13} /> Absagen
+              </button>
+            </>
+          )}
+          {showActions && !variant && booking.status === 'confirmed' && (
+            <button
+              onClick={() => onAction(booking.id, 'cancel')}
+              disabled={isLoading}
+              className="flex items-center gap-1 px-3 py-1.5 bg-[#F4EDE2] text-[#4A4138] rounded-lg text-xs font-medium hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50"
+            >
+              <XCircle size={13} /> Absagen
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Anfragen-Karte mit eingebettetem Termin-Planer
 // ═══════════════════════════════════════════════════════════════════════════
 function InquiryCard({
@@ -221,7 +425,6 @@ function InquiryCard({
   const { topic, message } = parseInquiryNotes(booking.notes)
   const [open, setOpen] = useState(false)
 
-  // Termin-Planer State
   const [schedDate, setSchedDate] = useState(todayStr())
   const [schedTime, setSchedTime] = useState('')
   const [schedTreatment, setSchedTreatment] = useState(booking.treatment_types.id)
@@ -272,7 +475,6 @@ function InquiryCard({
 
   return (
     <div className="bg-white rounded-xl border border-amber-200 overflow-hidden">
-      {/* Kopfzeile */}
       <div className="p-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
@@ -322,7 +524,6 @@ function InquiryCard({
         </div>
       </div>
 
-      {/* Termin-Planer (ausgeklappt) */}
       {open && (
         <div className="border-t border-amber-100 bg-[#FFFDF9]">
           <div className="flex items-center justify-between px-4 py-3 bg-[#F4EDE2]">
@@ -335,7 +536,6 @@ function InquiryCard({
           </div>
 
           <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Behandlung */}
             <div>
               <label className="text-xs text-[#7A6E60] block mb-1.5">Behandlung</label>
               <select
@@ -348,8 +548,6 @@ function InquiryCard({
                 ))}
               </select>
             </div>
-
-            {/* Datum */}
             <div>
               <label className="text-xs text-[#7A6E60] block mb-1.5">Datum</label>
               <input
@@ -362,7 +560,6 @@ function InquiryCard({
             </div>
           </div>
 
-          {/* Zeitslots */}
           <div className="px-4 pb-4">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs text-[#7A6E60]">Uhrzeit wählen</label>
@@ -407,10 +604,9 @@ function InquiryCard({
               })}
             </div>
 
-            {/* Belegte Termine */}
             {busy.length > 0 && (
               <div className="bg-[#FBF7F1] rounded-lg p-3 mb-3 text-xs">
-                <p className="font-medium text-[#4A4138] mb-1">Heute bereits eingetragen:</p>
+                <p className="font-medium text-[#4A4138] mb-1">Bereits eingetragen:</p>
                 {busy.map((b, i) => (
                   <div key={i} className="flex gap-2 text-[#7A6E60]">
                     <span className="font-medium text-[#2A2622] w-24">{b.start}–{b.end}</span>
@@ -439,83 +635,6 @@ function InquiryCard({
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Standard-Buchungskarte
-// ═══════════════════════════════════════════════════════════════════════════
-function BookingCard({
-  booking, loadingId, onAction, showActions = false,
-}: {
-  booking: BookingWithRelations
-  loadingId: string | null
-  onAction: (id: string, action: 'confirm' | 'cancel') => void
-  showActions?: boolean
-}) {
-  const cfg = STATUS_CONFIG[booking.status]
-  const isLoading = loadingId === booking.id
-  const dateStr = new Date(booking.requested_date + 'T12:00').toLocaleDateString('de-CH', {
-    weekday: 'short', day: 'numeric', month: 'long', year: 'numeric',
-  })
-
-  return (
-    <div className="bg-white rounded-xl border border-[#E1D6C2] p-4">
-      <div className="flex items-start gap-4">
-        <div className="w-10 h-10 rounded-xl bg-[#C7D6CD]/40 flex items-center justify-center shrink-0">
-          <CalendarDays size={18} className="text-[#6B8E7F]" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <p className="font-medium text-sm text-[#2A2622]">{booking.profiles.full_name}</p>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.color}`}>{cfg.label}</span>
-            {booking.google_event_id && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">Im Kalender</span>
-            )}
-          </div>
-          <p className="text-xs text-[#4A4138] font-medium">
-            {booking.treatment_types.name} · {booking.treatment_types.duration_min} Min.
-          </p>
-          <p className="text-xs text-[#7A6E60]">
-            {dateStr} · {booking.requested_time.slice(0, 5)} Uhr
-          </p>
-          <p className="text-xs text-[#7A6E60]">
-            {booking.profiles.email}{booking.profiles.phone ? ` · ${booking.profiles.phone}` : ''}
-          </p>
-          {booking.notes && !isInquiry(booking) && (
-            <p className="text-xs text-[#7A6E60] mt-1 italic">&ldquo;{booking.notes}&rdquo;</p>
-          )}
-        </div>
-
-        {showActions && booking.status === 'pending' && (
-          <div className="flex gap-2 shrink-0">
-            <button
-              onClick={() => onAction(booking.id, 'confirm')}
-              disabled={isLoading}
-              className="flex items-center gap-1 px-3 py-1.5 bg-[#6B8E7F] text-white rounded-lg text-xs font-medium hover:bg-[#4F7163] transition-colors disabled:opacity-50"
-            >
-              <CheckCircle size={13} /> Bestätigen
-            </button>
-            <button
-              onClick={() => onAction(booking.id, 'cancel')}
-              disabled={isLoading}
-              className="flex items-center gap-1 px-3 py-1.5 bg-[#F4EDE2] text-[#4A4138] rounded-lg text-xs font-medium hover:bg-[#EDE3D2] transition-colors disabled:opacity-50"
-            >
-              <XCircle size={13} /> Absagen
-            </button>
-          </div>
-        )}
-        {showActions && booking.status === 'confirmed' && (
-          <button
-            onClick={() => onAction(booking.id, 'cancel')}
-            disabled={isLoading}
-            className="flex items-center gap-1 px-3 py-1.5 bg-[#F4EDE2] text-[#4A4138] rounded-lg text-xs font-medium hover:bg-red-50 hover:text-red-600 transition-colors disabled:opacity-50 shrink-0"
-          >
-            <XCircle size={13} /> Absagen
-          </button>
-        )}
-      </div>
     </div>
   )
 }
