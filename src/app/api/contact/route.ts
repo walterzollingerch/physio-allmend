@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
+import { createClient as createSupabaseAdmin } from '@supabase/supabase-js'
 
 export async function POST(req: NextRequest) {
   const fd = await req.formData()
@@ -11,6 +12,7 @@ export async function POST(req: NextRequest) {
   const message = fd.get('message') as string
   const fileEntries = fd.getAll('files') as File[]
 
+  // ── 1. E-Mail senden ─────────────────────────────────────────────────────
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -50,9 +52,67 @@ export async function POST(req: NextRequest) {
       html,
       attachments,
     })
-    return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('E-Mail Fehler:', err)
-    return NextResponse.json({ ok: false }, { status: 500 })
+    // Weiter – Supabase-Einträge trotzdem erstellen
   }
+
+  // ── 2. Supabase: Benutzer anlegen (gesperrt) + Anfrage speichern ──────────
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceRoleKey) {
+    console.warn('SUPABASE_SERVICE_ROLE_KEY fehlt – Benutzer/Anfrage nicht angelegt')
+    return NextResponse.json({ ok: true })
+  }
+
+  const adminClient = createSupabaseAdmin(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    serviceRoleKey
+  )
+
+  // Prüfen ob Benutzer mit dieser E-Mail schon existiert
+  let userId: string | null = null
+  try {
+    const { data: existingUsers } = await adminClient.auth.admin.listUsers()
+    const existing = existingUsers?.users.find(u => u.email === email)
+
+    if (existing) {
+      userId = existing.id
+    } else {
+      // Neuen gesperrten Benutzer anlegen (kein Passwort, kein Login möglich)
+      const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
+        email,
+        email_confirm: true,
+        user_metadata: { full_name: name, phone },
+      })
+      if (createError) {
+        console.error('Benutzer anlegen Fehler:', createError)
+      } else {
+        userId = newUser.user.id
+        // Profil als gesperrt markieren
+        await adminClient
+          .from('profiles')
+          .update({ is_blocked: true, phone: phone || null })
+          .eq('id', userId)
+      }
+    }
+  } catch (err) {
+    console.error('Benutzer-Fehler:', err)
+  }
+
+  // Anfrage in contact_inquiries speichern
+  try {
+    await adminClient.from('contact_inquiries').insert({
+      name,
+      email,
+      phone: phone || null,
+      topic,
+      message,
+      user_id: userId,
+      status: 'new',
+    })
+  } catch (err) {
+    console.error('Anfrage speichern Fehler:', err)
+  }
+
+  return NextResponse.json({ ok: true })
 }

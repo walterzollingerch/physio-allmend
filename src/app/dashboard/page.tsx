@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Wordmark } from '@/components/PhysioLogo'
-import { Users, LogOut, CalendarDays, ClipboardList, Clock, Calendar, BookOpen, Receipt, UserRound } from 'lucide-react'
+import { Users, LogOut, CalendarDays, ClipboardList, Clock, Calendar, BookOpen, Receipt, UserRound, Inbox } from 'lucide-react'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -18,12 +18,14 @@ export default async function DashboardPage() {
 
   // Anzahl ausstehender Buchungen für Physio/Admin
   let pendingCount = 0
+  let newInquiriesCount = 0
   if (isAdmin || isPhysio) {
-    const { count } = await supabase
-      .from('bookings')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending')
-    pendingCount = count ?? 0
+    const [bookingsRes, inquiriesRes] = await Promise.all([
+      supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+      supabase.from('contact_inquiries').select('*', { count: 'exact', head: true }).eq('status', 'new'),
+    ])
+    pendingCount = bookingsRes.count ?? 0
+    newInquiriesCount = inquiriesRes.count ?? 0
   }
 
   return (
@@ -127,6 +129,18 @@ export default async function DashboardPage() {
               title="Buchhaltung"
               description="Bilanz, Erfolgsrechnung & Kontenplan"
               href="/buchhaltung"
+            />
+          )}
+
+          {/* Anfragen (Physio & Admin) */}
+          {(isPhysio || isAdmin) && (
+            <DashboardCard
+              icon={<Inbox size={22} className="text-[#6B8E7F]" />}
+              title="Anfragen"
+              description="Kontaktanfragen von der Website"
+              href="/admin/anfragen"
+              badge={newInquiriesCount > 0 ? `${newInquiriesCount} neu` : undefined}
+              badgeColor="amber"
             />
           )}
 
