@@ -22,7 +22,8 @@ export default async function AnfragenPage() {
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
   if (!profile || !['admin', 'physio'].includes(profile.role)) redirect('/')
 
-  const { data: rawInquiries } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: rawInquiries } = await (supabase as any)
     .from('contact_inquiries')
     .select('*')
     .order('created_at', { ascending: false })

@@ -27,7 +27,8 @@ export default function AnfragenClient({ inquiries: initial }: { inquiries: Inqu
 
   const updateStatus = async (id: string, status: Inquiry['status']) => {
     setLoading(id)
-    const { error } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any)
       .from('contact_inquiries')
       .update({ status })
       .eq('id', id)

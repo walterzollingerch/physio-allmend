@@ -22,7 +22,8 @@ export default async function DashboardPage() {
   if (isAdmin || isPhysio) {
     const [bookingsRes, inquiriesRes] = await Promise.all([
       supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('contact_inquiries').select('*', { count: 'exact', head: true }).eq('status', 'new'),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from('contact_inquiries').select('*', { count: 'exact', head: true }).eq('status', 'new'),
     ])
     pendingCount = bookingsRes.count ?? 0
     newInquiriesCount = inquiriesRes.count ?? 0
