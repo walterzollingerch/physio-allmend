@@ -24,11 +24,12 @@ Für jede Aufgabe:
 - Ein alltäglicher deutscher Satz (kurz, max 10 Wörter, typische Alltagssituation)
 - Genau 3 Übersetzungen auf Italienisch im ${tenseName} (1 korrekte + 2 falsche aber plausible)
 - Den Index der korrekten Antwort (0, 1, oder 2) — variiere die Positionen über alle 10 Fragen
+- Eine kurze grammatikalische Erklärung auf Deutsch (1-2 Sätze), warum die richtige Antwort korrekt ist und was an den falschen Optionen falsch ist (z.B. falsche Konjugation, falsche Zeitform, falsches Hilfsverb)
 
 Die falschen Optionen sollen typische Lernfehler zeigen: falsche Verbkonjugation, falsche Zeitform, oder falsche Endung.
 
 Antworte AUSSCHLIESSLICH mit einem validen JSON-Array, OHNE Markdown, OHNE Erklärungen:
-[{"german": "...", "options": ["...", "...", "..."], "correctIndex": 0}]`,
+[{"german": "...", "options": ["...", "...", "..."], "correctIndex": 0, "explanation": "..."}]`,
         },
       ],
     })

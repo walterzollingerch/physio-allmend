@@ -9,6 +9,7 @@ type Question = {
   german: string
   options: string[]
   correctIndex: number
+  explanation?: string
 }
 
 type Phase = 'start' | 'loading' | 'quiz' | 'result'
@@ -252,10 +253,14 @@ export default function ItalianoPage() {
                 className="text-sm font-semibold"
                 style={{ color: chosen === q.correctIndex ? GREEN : RED }}
               >
-                {chosen === q.correctIndex
-                  ? 'Richtig! 🎉'
-                  : `Falsch — richtig wäre: ${q.options[q.correctIndex]}`}
+                {chosen === q.correctIndex ? 'Richtig! 🎉' : `Falsch — richtig wäre: ${q.options[q.correctIndex]}`}
               </p>
+              {q.explanation && (
+                <div className="w-full bg-white border border-[#E1D6C2] rounded-xl px-4 py-3 text-sm text-[#4A4138] leading-relaxed">
+                  <span className="font-semibold text-[#2A2622]">Grammatik: </span>
+                  {q.explanation}
+                </div>
+              )}
               <button
                 onClick={nextQuestion}
                 className="px-8 py-3 rounded-xl font-semibold text-white shadow-md hover:opacity-90 transition-all"
