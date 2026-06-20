@@ -139,6 +139,15 @@ export default async function DashboardPage() {
               href="/admin/users"
             />
           )}
+
+          {/* Italiano Trainer (alle) */}
+          <DashboardCard
+            icon={<span className="text-xl leading-none">🇮🇹</span>}
+            title="Italiano Trainer"
+            description="Italienische Zeitformen üben"
+            href="/italiano"
+          />
+
         </div>
       </main>
     </div>
